@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#07111d" />
+  <title>Skystrike: Mountain Front</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="game"></div>
+
+  <section id="menu" class="screen visible">
+    <div class="menu-bg"></div>
+    <div class="menu-shell">
+      <header>
+        <p class="eyebrow">TACTICAL FLIGHT SIMULATOR</p>
+        <h1>SKYSTRIKE</h1>
+        <p class="subtitle">MOUNTAIN FRONT</p>
+      </header>
+
+      <div class="menu-grid">
+        <div class="selection-panel">
+          <h2>SELECT AIRCRAFT</h2>
+          <div id="aircraftCards" class="aircraft-cards"></div>
+          <div class="pilot-row">
+            <label>
+              Enemy skill
+              <select id="difficulty">
+                <option value="0.72">Cadet</option>
+                <option value="1" selected>Veteran</option>
+                <option value="1.28">Ace</option>
+              </select>
+            </label>
+            <label>
+              Mouse sensitivity
+              <select id="sensitivity">
+                <option value="0.0048">Medium</option>
+                <option value="0.0064" selected>High (2×)</option>
+                <option value="0.0082">Very high</option>
+              </select>
+            </label>
+            <div class="record">
+              <span>BEST RUN</span>
+              <strong id="bestScore">0 KILLS</strong>
+            </div>
+          </div>
+          <button id="startButton" class="start-button">DEPLOY TO RUNWAY</button>
+          <p class="audio-note">Performance mode is tuned for 4 GB VRAM. Resolution adapts automatically to maintain smooth flight.</p>
+        </div>
+
+        <aside class="briefing-panel">
+          <h2>FLIGHT BRIEFING</h2>
+          <div class="mission-map">
+            <div class="radar-ring r1"></div><div class="radar-ring r2"></div><div class="radar-ring r3"></div>
+            <div class="radar-sweep"></div>
+            <span class="map-runway"></span>
+            <span class="map-contact c1"></span><span class="map-contact c2"></span><span class="map-contact c3"></span>
+          </div>
+          <p>Launch from Falcon Ridge Air Station. Hostile patrols are already airborne throughout the valley.</p>
+          <div class="controls-list">
+            <div><kbd>W / S</kbd><span>Throttle up / down</span></div>
+            <div><kbd>MOUSE</kbd><span>Pitch and directional turn</span></div>
+            <div><kbd>A / D</kbd><span>Bank / roll left and right</span></div>
+            <div><kbd>SPACE + A/D</kbd><span>Full barrel roll</span></div>
+            <div><kbd>SHIFT</kbd><span>Fire primary guns</span></div>
+            <div><kbd>R</kbd><span>Reload / rearm guns</span></div>
+            <div><kbd>C</kbd><span>Third-person / cockpit</span></div>
+            <div><kbd>ESC</kbd><span>Pause and release mouse</span></div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <section id="pause" class="screen">
+    <div class="pause-card">
+      <p class="eyebrow">FLIGHT SUSPENDED</p>
+      <h2>PAUSED</h2>
+      <button id="resumeButton">RESUME FLIGHT</button>
+      <button id="quitButton" class="secondary">RETURN TO HANGAR</button>
+    </div>
+  </section>
+
+  <div id="hud" class="hidden">
+    <div class="hud-top-left glass">
+      <div class="aircraft-label" id="hudAircraft">AIRCRAFT</div>
+      <div class="health-row"><span>HULL</span><div class="health-track"><i id="healthBar"></i></div><strong id="healthText">100</strong></div>
+      <div class="ammo-row"><span>AMMO</span><strong id="ammoText">000 / 000</strong></div>
+    </div>
+
+    <div class="hud-top-center">
+      <div class="heading-tape"><span id="headingText">N 000°</span></div>
+      <div id="warningText" class="warning"></div>
+    </div>
+
+    <div class="hud-top-right glass">
+      <div><span>KILLS</span><strong id="killsText">0</strong></div>
+      <div><span>HOSTILES</span><strong id="hostilesText">4</strong></div>
+      <div><span>VIEW</span><strong id="viewText">CHASE</strong></div>
+    </div>
+
+    <div class="flight-ladder" id="flightLadder">
+      <div class="horizon-line"><span>-</span><b></b><span>-</span></div>
+      <div class="pitch-line p20">20</div><div class="pitch-line p10">10</div>
+      <div class="pitch-line n10">-10</div><div class="pitch-line n20">-20</div>
+    </div>
+
+    <div class="reticle">
+      <span class="r-left"></span><span class="r-right"></span><span class="r-top"></span><span class="r-bottom"></span>
+      <i></i>
+    </div>
+
+    <div class="hud-bottom-left glass instruments">
+      <div><span>SPEED</span><strong id="speedText">0</strong><small>KM/H</small></div>
+      <div><span>ALT</span><strong id="altText">0</strong><small>M</small></div>
+      <div><span>V/S</span><strong id="vsText">0</strong><small>M/S</small></div>
+    </div>
+
+    <div class="hud-bottom-center glass throttle-box">
+      <span>THROTTLE</span><div class="throttle-track"><i id="throttleBar"></i></div><strong id="throttleText">0%</strong>
+      <em id="flightStatus">RUNWAY</em>
+    </div>
+
+    <div class="hud-bottom-right glass radar-box">
+      <canvas id="radar" width="180" height="180"></canvas>
+    </div>
+
+    <div id="cockpitFrame" class="cockpit-frame hidden">
+      <div class="canopy-left"></div><div class="canopy-right"></div><div class="canopy-top"></div>
+      <div class="dash"><span></span><span></span><span></span><span></span><span></span></div>
+    </div>
+
+    <div id="damageVignette"></div>
+    <div id="messageBanner"></div>
+    <div class="crosshair-tip">CLICK TO LOCK MOUSE • C TO CHANGE VIEW</div>
+  </div>
+
+  <script type="module" src="game.js?v=performance-4gb-v3"></script>
+</body>
+</html>
