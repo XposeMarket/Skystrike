@@ -1,0 +1,99 @@
+    const grad=ctx.createLinearGradient(0,0,256,256);grad.addColorStop(0,c1);grad.addColorStop(.5,c2);grad.addColorStop(1,c1);ctx.fillStyle=grad;ctx.fillRect(0,0,256,256);ctx.strokeStyle='rgba(255,255,255,.08)';for(let x=0;x<256;x+=32){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,256);ctx.stroke()}for(let i=0;i<1000;i++){ctx.fillStyle='rgba(0,0,0,.08)';ctx.fillRect(Math.random()*256,Math.random()*256,1,1)}
+  } else if(kind==='fabric'){
+    ctx.strokeStyle=c2;ctx.globalAlpha=.2;for(let i=0;i<256;i+=4){ctx.beginPath();ctx.moveTo(i,0);ctx.lineTo(i,256);ctx.stroke();ctx.beginPath();ctx.moveTo(0,i);ctx.lineTo(256,i);ctx.stroke()}ctx.globalAlpha=1;
+  } else if(kind==='brick'){
+    ctx.fillStyle=c1;ctx.fillRect(0,0,256,256);ctx.strokeStyle=c2;ctx.lineWidth=3;for(let y=0;y<256;y+=32){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(256,y);ctx.stroke();for(let x=(y/32%2)*32;x<256;x+=64){ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x,y+32);ctx.stroke()}}
+  }
+  const tex=new THREE.CanvasTexture(canvas);tex.wrapS=tex.wrapT=THREE.RepeatWrapping;tex.colorSpace=THREE.SRGBColorSpace;tex.anisotropy=4;return tex;
+}
+const textures={
+  terrain:makeCanvasTexture('terrain','#49613f','#83905f','#2d452d'), rock:makeCanvasTexture('terrain','#65625d','#8f887d','#3f4140'),
+  runway:makeCanvasTexture('runway','#303337','#666b70'), metal:makeCanvasTexture('metal','#68747c','#aeb9bf'),
+  fabricRed:makeCanvasTexture('fabric','#852c27','#e2c592'), fabricTan:makeCanvasTexture('fabric','#c2a96f','#735938'),
+  olive:makeCanvasTexture('metal','#526044','#738061'), jet:makeCanvasTexture('metal','#53636f','#9aabb6'), brick:makeCanvasTexture('brick','#70645c','#332f2b')
+};
+textures.terrain.repeat.set(90,90);textures.rock.repeat.set(60,60);textures.runway.repeat.set(8,80);textures.brick.repeat.set(4,3);
+
+function hash2(x,z){const s=Math.sin(x*127.1+z*311.7)*43758.5453123;return s-Math.floor(s)}
+function smoothNoise(x,z){const xi=Math.floor(x),zi=Math.floor(z),xf=x-xi,zf=z-zi;const u=xf*xf*(3-2*xf),v=zf*zf*(3-2*zf);return lerp(lerp(hash2(xi,zi),hash2(xi+1,zi),u),lerp(hash2(xi,zi+1),hash2(xi+1,zi+1),u),v)}
+function fbm(x,z){let v=0,a=.5,f=1;for(let i=0;i<5;i++){v+=smoothNoise(x*f,z*f)*a;f*=2.03;a*=.49}return v}
+function terrainHeight(x,z){
+  const n=(fbm(x*.00115,z*.00115)-.5)*195+(fbm(x*.0032+22,z*.0032-17)-.5)*54;
+  const ridges=Math.pow(Math.abs(fbm(x*.00055+90,z*.00055+40)-.5)*2,2.4)*480;
+  const radial=Math.max(0,(Math.hypot(x,z)-900)/2500)*220;
+  let h=12+n+ridges+radial;
+  const valley=Math.exp(-(x*x+z*z)/(2*1100*1100));h-=valley*80;
+  const runwayMask=Math.max(Math.abs(x)/150,Math.abs(z)/720);
+  if(runwayMask<1){const t=THREE.MathUtils.smoothstep(runwayMask,.45,1);h=lerp(RUNWAY_Y-1,h,t)}
+  return Math.max(-35,h);
+}
+
+function surfaceHeight(x,z){
+  // The runway is a raised box, so use its actual top surface instead of the terrain below it.
+  if(Math.abs(x)<=46&&Math.abs(z)<=630)return RUNWAY_Y+.6;
+  return terrainHeight(x,z);
+}
+
+function initThree(){
+  renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});renderer.setPixelRatio(renderPixelRatio);renderer.setSize(innerWidth,innerHeight);renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFShadowMap;renderer.shadowMap.autoUpdate=false;renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.05;dom.game.appendChild(renderer.domElement);
+  scene=new THREE.Scene();scene.fog=new THREE.FogExp2(0x8ba9b6,.0002);
+  camera=new THREE.PerspectiveCamera(68,innerWidth/innerHeight,.1,16000);
+  clock=new THREE.Clock();
+  const hemi=new THREE.HemisphereLight(0xc8e9ff,0x344020,1.5);scene.add(hemi);
+  sun=new THREE.DirectionalLight(0xffedcf,2.05);sun.position.set(-650,1100,-500);sun.castShadow=true;sun.shadow.mapSize.set(PERF.shadowMapSize,PERF.shadowMapSize);sun.shadow.camera.left=-520;sun.shadow.camera.right=520;sun.shadow.camera.top=520;sun.shadow.camera.bottom=-520;sun.shadow.camera.near=80;sun.shadow.camera.far=2600;sun.shadow.bias=-.00025;sunTarget=new THREE.Object3D();scene.add(sunTarget);sun.target=sunTarget;scene.add(sun);
+  createSky();createTerrain();createAirport();createClouds();
+  renderer.shadowMap.needsUpdate=true;
+  window.addEventListener('resize',onResize);
+}
+
+function createSky(){
+  const geo=new THREE.SphereGeometry(8000,24,12);
+  const mat=new THREE.ShaderMaterial({side:THREE.BackSide,uniforms:{top:{value:new THREE.Color(0x2e668b)},bottom:{value:new THREE.Color(0xc9d6d2)},offset:{value:220},exponent:{value:.78}},vertexShader:`varying vec3 vWorldPosition;void main(){vec4 worldPosition=modelMatrix*vec4(position,1.0);vWorldPosition=worldPosition.xyz;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,fragmentShader:`uniform vec3 top;uniform vec3 bottom;uniform float offset;uniform float exponent;varying vec3 vWorldPosition;void main(){float h=normalize(vWorldPosition+vec3(0.0,offset,0.0)).y;gl_FragColor=vec4(mix(bottom,top,max(pow(max(h,0.0),exponent),0.0)),1.0);}`});
+  scene.add(new THREE.Mesh(geo,mat));
+  const sunDisc=new THREE.Mesh(new THREE.SphereGeometry(58,14,8),new THREE.MeshBasicMaterial({color:0xfff1c7}));sunDisc.position.set(-3300,2800,-4800);scene.add(sunDisc);
+}
+
+function createTerrain(){
+  const geo=new THREE.PlaneGeometry(WORLD_SIZE,WORLD_SIZE,PERF.terrainSegments,PERF.terrainSegments);geo.rotateX(-Math.PI/2);
+  const p=geo.attributes.position, colors=[];for(let i=0;i<p.count;i++){const x=p.getX(i),z=p.getZ(i),y=terrainHeight(x,z);p.setY(i,y);const c=new THREE.Color();if(y>430)c.set(0xe4e6df);else if(y>245)c.set(0x77736c);else if(y<4)c.set(0x7a7450);else c.set(0x526b45);const jitter=(hash2(x*.02,z*.02)-.5)*.12;c.offsetHSL(0,0,jitter);colors.push(c.r,c.g,c.b)}
+  geo.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));geo.computeVertexNormals();
+  const mat=new THREE.MeshStandardMaterial({map:textures.terrain,vertexColors:true,roughness:1,metalness:0});terrain=new THREE.Mesh(geo,mat);terrain.receiveShadow=true;scene.add(terrain);
+  water=new THREE.Mesh(new THREE.PlaneGeometry(WORLD_SIZE*1.2,WORLD_SIZE*1.2),new THREE.MeshStandardMaterial({color:0x315f73,transparent:true,opacity:.72,roughness:.38,metalness:.08}));water.rotation.x=-Math.PI/2;water.position.y=-10;scene.add(water);
+  addVegetation();
+}
+
+function addVegetation(){
+  const trunkGeo=new THREE.CylinderGeometry(.45,.65,5,5),leafGeo=new THREE.ConeGeometry(3.2,11,7);const trunkMat=new THREE.MeshStandardMaterial({color:0x493828,roughness:1}),leafMat=new THREE.MeshStandardMaterial({color:0x263f27,roughness:1});
+  const count=PERF.treeCount,trunks=new THREE.InstancedMesh(trunkGeo,trunkMat,count),leaves=new THREE.InstancedMesh(leafGeo,leafMat,count);const m=new THREE.Matrix4(),q=new THREE.Quaternion(),s=new THREE.Vector3();let made=0;
+  for(let i=0;i<count*3&&made<count;i++){const x=(Math.random()-.5)*WORLD_SIZE*.84,z=(Math.random()-.5)*WORLD_SIZE*.84;if(Math.abs(x)<210&&Math.abs(z)<900)continue;const y=terrainHeight(x,z);if(y<5||y>270)continue;const scale=.6+Math.random()*1.2;q.setFromAxisAngle(UP,Math.random()*Math.PI*2);s.set(scale,scale,scale);m.compose(new THREE.Vector3(x,y+2.5*scale,z),q,s);trunks.setMatrixAt(made,m);m.compose(new THREE.Vector3(x,y+8*scale,z),q,s);leaves.setMatrixAt(made,m);made++}
+  trunks.count=leaves.count=made;trunks.castShadow=leaves.castShadow=false;trunks.receiveShadow=leaves.receiveShadow=false;scene.add(trunks,leaves);
+}
+
+function createAirport(){
+  airport=new THREE.Group();
+  const runway=new THREE.Mesh(new THREE.BoxGeometry(92,1.2,1260),new THREE.MeshStandardMaterial({map:textures.runway,roughness:.96}));runway.position.set(0,RUNWAY_Y,0);runway.receiveShadow=true;airport.add(runway);
+  const stripeMat=new THREE.MeshBasicMaterial({color:0xe9e7d7});
+  for(let z=-540;z<=540;z+=72){const stripe=new THREE.Mesh(new THREE.BoxGeometry(2,.05,34),stripeMat);stripe.position.set(0,RUNWAY_Y+.65,z);airport.add(stripe)}
+  for(const x of [-38,38]){const edge=new THREE.Mesh(new THREE.BoxGeometry(1,.05,1160),new THREE.MeshBasicMaterial({color:0xd8d2b4}));edge.position.set(x,RUNWAY_Y+.65,0);airport.add(edge)}
+  for(let i=0;i<8;i++){const side=i<4?-1:1;const z=-420+(i%4)*260;createHangar(airport,side*150,RUNWAY_Y,z,side);}
+  const tower=new THREE.Group();const base=new THREE.Mesh(new THREE.BoxGeometry(24,38,24),new THREE.MeshStandardMaterial({map:textures.brick,roughness:.9}));base.position.y=19;const cab=new THREE.Mesh(new THREE.BoxGeometry(34,12,34),new THREE.MeshPhysicalMaterial({color:0x6e8996,metalness:.25,roughness:.25,transparent:true,opacity:.88}));cab.position.y=43;const roof=new THREE.Mesh(new THREE.CylinderGeometry(24,20,4,8),new THREE.MeshStandardMaterial({color:0x263039,roughness:.7}));roof.position.y=51;tower.add(base,cab,roof);tower.position.set(220,RUNWAY_Y,60);tower.traverse(x=>{if(x.isMesh){x.castShadow=false;x.receiveShadow=true}});airport.add(tower);
+  const beacon=new THREE.PointLight(0xff3d30,12,120);beacon.position.set(220,RUNWAY_Y+58,60);airport.add(beacon);
+  const lightPositions=[];for(let z=-580;z<=580;z+=40)for(const x of [-47,47])lightPositions.push(new THREE.Vector3(x,RUNWAY_Y+1,z));
+  const runwayLights=new THREE.InstancedMesh(new THREE.SphereGeometry(.55,5,4),new THREE.MeshBasicMaterial({color:0xa8e9ff}),lightPositions.length);const lm=new THREE.Matrix4();lightPositions.forEach((pos,i)=>{lm.makeTranslation(pos.x,pos.y,pos.z);runwayLights.setMatrixAt(i,lm)});runwayLights.instanceMatrix.needsUpdate=true;airport.add(runwayLights);
+  for(const z of [-420,0,420]){const l=new THREE.PointLight(0x8bdfff,1.2,55);l.position.set(0,RUNWAY_Y+3,z);airport.add(l)}
+  scene.add(airport);
+}
+function createHangar(parent,x,y,z,side){const g=new THREE.Group();const body=new THREE.Mesh(new THREE.BoxGeometry(86,30,65),new THREE.MeshStandardMaterial({map:textures.brick,roughness:.92}));body.position.y=15;const roof=new THREE.Mesh(new THREE.CylinderGeometry(43,43,66,16,1,false,0,Math.PI),new THREE.MeshStandardMaterial({map:textures.metal,roughness:.72}));roof.rotation.z=Math.PI/2;roof.rotation.y=Math.PI/2;roof.position.y=30;const door=new THREE.Mesh(new THREE.BoxGeometry(47,22,1),new THREE.MeshStandardMaterial({map:textures.metal,roughness:.6}));door.position.set(0,12,side<0?33:-33);g.add(body,roof,door);g.position.set(x,y,z);g.traverse(m=>{if(m.isMesh){m.castShadow=false;m.receiveShadow=true}});parent.add(g)}
+
+function createClouds(){
+  const geo=new THREE.SphereGeometry(1,8,5),mat=new THREE.MeshLambertMaterial({color:0xffffff,transparent:true,opacity:.48,depthWrite:false});
+  cloudMesh=new THREE.InstancedMesh(geo,mat,PERF.cloudPuffs);cloudMesh.frustumCulled=false;
+  const matrix=new THREE.Matrix4(),q=new THREE.Quaternion(),scale=new THREE.Vector3();
+  for(let i=0;i<PERF.cloudPuffs;i++){const cluster=Math.floor(i/6),angle=(cluster/14)*Math.PI*2+Math.random()*.35,radius=1100+Math.random()*2500;const x=Math.cos(angle)*radius+(Math.random()-.5)*260,z=Math.sin(angle)*radius+(Math.random()-.5)*260,y=650+Math.random()*900;const size=45+Math.random()*82;scale.set(size*(1.2+Math.random()*.8),size*.42,size*(.7+Math.random()*.75));matrix.compose(new THREE.Vector3(x,y,z),q,scale);cloudMesh.setMatrixAt(i,matrix)}
+  cloudMesh.instanceMatrix.needsUpdate=true;scene.add(cloudMesh);
+}
+
+function wingMesh(span, rootChord, tipChord, sweep, thickness, material){
+  const shape=new THREE.Shape();shape.moveTo(-span/2,-rootChord/2);shape.lineTo(-span/2+sweep,rootChord/2);shape.lineTo(span/2-sweep,rootChord/2);shape.lineTo(span/2,-rootChord/2);shape.closePath();
+  const geo=new THREE.ExtrudeGeometry(shape,{depth:thickness,bevelEnabled:true,bevelSize:.08,bevelThickness:.06,bevelSegments:1});geo.center();geo.rotateX(Math.PI/2);const m=new THREE.Mesh(geo,material);m.castShadow=true;m.receiveShadow=true;return m;
+}
