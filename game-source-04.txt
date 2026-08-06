@@ -1,0 +1,35 @@
+function showBanner(text,time=1.2){dom.banner.textContent=text;dom.banner.style.opacity=1;bannerTimeout=time}
+
+function drawRadar(){const c=radarCtx,w=180,h=180;c.clearRect(0,0,w,h);c.save();c.translate(90,90);c.strokeStyle='rgba(111,221,255,.28)';c.lineWidth=1;for(const r of [28,56,84]){c.beginPath();c.arc(0,0,r,0,Math.PI*2);c.stroke()}c.beginPath();c.moveTo(-86,0);c.lineTo(86,0);c.moveTo(0,-86);c.lineTo(0,86);c.stroke();c.fillStyle='rgba(135,236,255,.95)';c.beginPath();c.moveTo(0,-7);c.lineTo(5,6);c.lineTo(0,3);c.lineTo(-5,6);c.closePath();c.fill();
+  if(player){const inv=player.root.quaternion.clone().invert();for(const e of enemies){if(e.dead)continue;const rel=e.root.position.clone().sub(player.root.position).applyQuaternion(inv);const scale=84/1100,x=clamp(rel.x*scale,-82,82),y=clamp(-rel.z*scale,-82,82);c.fillStyle=rel.z>0?'#ff4f48':'rgba(255,164,88,.65)';c.beginPath();c.arc(x,y,3,0,Math.PI*2);c.fill();if(Math.abs(rel.y)>120){c.strokeStyle='rgba(255,100,80,.75)';c.beginPath();c.moveTo(x,y);c.lineTo(x,y+(rel.y>0?-7:7));c.stroke()}}}c.restore();}
+
+function updateWorld(dt){
+  water.material.opacity=.68+Math.sin(gameTime*.4)*.025;water.position.x=player.root.position.x*.015;water.position.z=player.root.position.z*.015;
+  airport.visible=Math.hypot(player.root.position.x,player.root.position.z)<2800;
+  shadowElapsed+=dt;if(shadowElapsed>=PERF.shadowRefresh){shadowElapsed=0;sunTarget.position.copy(player.root.position);sun.position.copy(player.root.position).add(new THREE.Vector3(-650,1100,-500));sunTarget.updateMatrixWorld();sun.updateMatrixWorld();renderer.shadowMap.needsUpdate=true}
+}
+
+function updateEasterEgg(dt){
+  if(!easterEgg.triggered&&gameTime>22&&player.root.position.y>930){easterEgg.triggered=true;easterEgg.time=0;const g=new THREE.Group();const discMat=new THREE.MeshStandardMaterial({color:0x22282c,metalness:.9,roughness:.18,emissive:0x071b26});const disc=new THREE.Mesh(new THREE.CylinderGeometry(90,155,24,32),discMat);const dome=new THREE.Mesh(new THREE.SphereGeometry(58,24,12,0,Math.PI*2,0,Math.PI/2),new THREE.MeshPhysicalMaterial({color:0x6de2ff,transparent:true,opacity:.32,emissive:0x1c5060,metalness:.5,roughness:.1}));dome.position.y=17;g.add(disc,dome);for(let i=0;i<12;i++){const marker=new THREE.Mesh(new THREE.SphereGeometry(5,6,4),new THREE.MeshBasicMaterial({color:i%2?0xff334c:0x43e8ff}));const a=i/12*Math.PI*2;marker.position.set(Math.cos(a)*115,-10,Math.sin(a)*115);marker.userData.pulse=i;g.add(marker)}for(const x of [-70,70]){const l=new THREE.PointLight(0x43e8ff,5,150);l.position.set(x,-5,0);g.add(l)}const beam=new THREE.Mesh(new THREE.ConeGeometry(65,420,24,1,true),new THREE.MeshBasicMaterial({color:0xa2f3ff,transparent:true,opacity:.08,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));beam.position.y=-215;g.add(beam);const f=FORWARD.clone().applyQuaternion(player.root.quaternion);g.position.copy(player.root.position).addScaledVector(f,1200).add(new THREE.Vector3(0,260,0));g.rotation.z=.08;scene.add(g);easterEgg.active=g;audio.strange();showBanner('⚠ UNKNOWN SIGNAL OVERRIDE ⚠',4.5);}
+  if(easterEgg.active){easterEgg.time+=dt;const g=easterEgg.active;const target=player.root.position.clone().add(new THREE.Vector3(0,180,0));g.position.lerp(target,dt*.09);g.rotation.y+=dt*.18;g.children.forEach((x,i)=>{if(x.isLight)x.intensity=3+Math.sin(gameTime*7+i)*2;else if(x.userData.pulse!==undefined)x.scale.setScalar(.75+Math.sin(gameTime*8+x.userData.pulse)*.25)});if(easterEgg.time>13){scene.remove(g);easterEgg.active=null;showBanner('SIGNAL LOST',1.8)}}
+}
+
+function tuneResolution(dt){
+  perfElapsed+=dt;perfFrames++;perfCooldown=Math.max(0,perfCooldown-dt);if(perfElapsed<2||perfCooldown>0)return;
+  const fps=perfFrames/perfElapsed;let next=renderPixelRatio;if(fps<47)next=Math.max(PERF.minPixelRatio,renderPixelRatio-.08);else if(fps>58)next=Math.min(PERF.maxPixelRatio,renderPixelRatio+.04);
+  perfElapsed=0;perfFrames=0;if(Math.abs(next-renderPixelRatio)>.001){renderPixelRatio=next;renderer.setPixelRatio(renderPixelRatio);renderer.setSize(innerWidth,innerHeight,false);perfCooldown=2.5}
+}
+function animate(now=0){requestAnimationFrame(animate);if(!renderer)return;const frameInterval=1000/60;if(lastRenderStamp&&now-lastRenderStamp<frameInterval)return;const elapsed=lastRenderStamp?now-lastRenderStamp:frameInterval;lastRenderStamp=now-(elapsed%frameInterval);let dt=Math.min(clock.getDelta(),.04);if(running&&!paused){gameTime+=dt;updatePlayer(dt);updateEnemies(dt);updateBullets(dt);updateEffects(dt);updateWorld(dt);updateEasterEgg(dt);updateCamera(dt);updateHUD(dt);tuneResolution(dt)}renderer.render(scene,camera)}
+
+function onResize(){if(!renderer)return;renderer.setPixelRatio(renderPixelRatio);renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix()}
+function switchView(){if(!running)return;viewMode=viewMode==='chase'?'cockpit':'chase';player.model.visible=viewMode==='chase';dom.cockpit.classList.toggle('hidden',viewMode!=='cockpit');dom.view.textContent=viewMode==='cockpit'?'COCKPIT':'CHASE';audio.click();}
+
+buildAircraftCards();dom.best.textContent=`${+localStorage.getItem('skystrikeBest')||0} KILLS`;
+dom.start.addEventListener('click',startGame);dom.resume.addEventListener('click',resumeGame);dom.quit.addEventListener('click',returnToMenu);dom.sensitivity.addEventListener('change',()=>{mouseSensitivity=parseFloat(dom.sensitivity.value)||.0064;audio.click()});
+dom.menu.addEventListener('pointerdown',()=>{audio.ensure();if(!running&&audio.mode!=='menu')audio.menuMusic()},{once:true});
+window.addEventListener('keydown',e=>{keys[e.code]=true;if(e.code==='KeyR'&&running&&!paused)beginReload();if(e.code==='KeyC'&&!e.repeat)switchView();if(e.code==='Escape'&&running&&!paused)setTimeout(pauseGame,0);});
+window.addEventListener('keyup',e=>keys[e.code]=false);
+document.addEventListener('mousemove',e=>{if(!pointerLocked||paused)return;input.steerX=clamp(input.steerX-e.movementX*mouseSensitivity,-1,1);input.steerY=clamp(input.steerY+e.movementY*mouseSensitivity,-1,1)});
+document.addEventListener('pointerlockchange',()=>{pointerLocked=document.pointerLockElement===renderer?.domElement;if(running&&!pointerLocked&&!paused)pauseGame()});
+dom.game.addEventListener('click',()=>{if(running&&!paused&&!pointerLocked)renderer.domElement.requestPointerLock()});
+animate();
