@@ -1,0 +1,135 @@
+
+/* ----- camera / cockpit / terrain refinement pass ----- */
+const cockpitStyle=document.createElement('style');
+cockpitStyle.textContent=`
+#cockpitOverlay{position:fixed;inset:0;pointer-events:none;z-index:12;display:none;opacity:0;transition:opacity .22s ease}
+#cockpitOverlay.visible{display:block;opacity:1}
+#cockpitOverlay .cockpit-vignette{position:absolute;inset:0;background:radial-gradient(circle at center,rgba(0,0,0,0) 36%,rgba(0,0,0,.12) 60%,rgba(0,0,0,.5) 100%)}
+#cockpitOverlay .hudglass{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(55vw,430px);height:min(34vw,270px);border:1px solid rgba(112,255,235,.2);background:linear-gradient(180deg,rgba(72,229,255,.055),rgba(72,229,255,.012));box-shadow:inset 0 0 34px rgba(47,235,220,.05);border-radius:18px}
+#cockpitOverlay .canopy-left,#cockpitOverlay .canopy-right,#cockpitOverlay .canopy-top,#cockpitOverlay .dash{position:absolute;background:linear-gradient(180deg,rgba(15,18,24,.98),rgba(36,40,47,.9));box-shadow:0 0 22px rgba(0,0,0,.3)}
+#cockpitOverlay .canopy-left{left:20%;top:-5%;width:8px;height:72%;transform:rotate(24deg);transform-origin:top center}
+#cockpitOverlay .canopy-right{right:20%;top:-5%;width:8px;height:72%;transform:rotate(-24deg);transform-origin:top center}
+#cockpitOverlay .canopy-top{left:27%;right:27%;top:7%;height:9px;border-radius:999px}
+#cockpitOverlay .dash{left:4%;right:4%;bottom:-2%;height:18%;border-radius:28px 28px 0 0}
+#cockpitOverlay .mfd{position:absolute;bottom:2.5%;width:18%;height:11%;border-radius:8px;background:linear-gradient(180deg,rgba(8,28,35,.98),rgba(2,10,16,.98));border:1px solid rgba(112,255,235,.2);box-shadow:inset 0 0 20px rgba(62,235,215,.08)}
+#cockpitOverlay .mfd.left{left:13%}#cockpitOverlay .mfd.center{left:41%}#cockpitOverlay .mfd.right{right:13%}
+#cockpitOverlay .gunsight{position:absolute;left:50%;top:49%;transform:translate(-50%,-50%);width:108px;height:108px;border:1px solid rgba(115,255,240,.42);border-radius:50%;box-shadow:0 0 18px rgba(100,255,240,.08)}
+#cockpitOverlay .gunsight:before,#cockpitOverlay .gunsight:after{content:'';position:absolute;background:rgba(115,255,240,.55)}
+#cockpitOverlay .gunsight:before{left:50%;top:8px;bottom:8px;width:1px}#cockpitOverlay .gunsight:after{top:50%;left:8px;right:8px;height:1px}
+#cockpitOverlay .readout{position:absolute;left:50%;bottom:19%;transform:translateX(-50%);font:700 11px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.13em;color:#8afff4;text-shadow:0 0 10px rgba(83,255,235,.32);white-space:pre;text-transform:uppercase}
+`;
+document.head.appendChild(cockpitStyle);
+const cockpitOverlay=document.createElement('div');
+cockpitOverlay.id='cockpitOverlay';
+cockpitOverlay.innerHTML=`<div class="cockpit-vignette"></div><div class="hudglass"></div><div class="canopy-left"></div><div class="canopy-right"></div><div class="canopy-top"></div><div class="gunsight"></div><div class="dash"></div><div class="mfd left"></div><div class="mfd center"></div><div class="mfd right"></div><div class="readout">IAS 000 KT · ALT 0000 FT</div>`;
+$('app').appendChild(cockpitOverlay);
+const cockpitReadout=cockpitOverlay.querySelector('.readout');
+
+const _updateHUD=updateHUD;
+updateHUD=function(elapsed){
+  _updateHUD(elapsed);
+  if(cockpitReadout){
+    const earth=state.mode==='earth',spd=Math.round(earth?state.speed*1.94384:state.speed).toLocaleString(),alt=Math.round(earth?state.altitude*3.28084:state.altitude/1000).toLocaleString();
+    cockpitReadout.textContent=`IAS ${spd} ${earth?'KT':'KM/S'} · ALT ${alt} ${earth?'FT':'KM'} · HDG ${String(Math.round(state.heading)).padStart(3,'0')}°`;
+  }
+};
+
+updateCamera=function(dt){
+  const cfg=aircraftConfigs[state.currentAircraft]||{displaySize:18,cruise:160};
+  const forward=tmpV.set(0,0,-1).applyQuaternion(flightQuat).normalize();
+  const up=tmpV2.set(0,1,0).applyQuaternion(flightQuat).normalize();
+  let desired;
+  if(state.cameraMode===0){
+    const speedNorm=state.mode==='space'?THREE.MathUtils.clamp(state.spaceVelocity/3,0,1):THREE.MathUtils.clamp(state.speed/Math.max(cfg.cruise||160,1),0,1.15);
+    const back=state.mode==='space'?THREE.MathUtils.lerp(cfg.displaySize*1.45,cfg.displaySize*2.05,speedNorm):THREE.MathUtils.lerp(cfg.displaySize*.95,cfg.displaySize*1.28,speedNorm);
+    const rise=state.mode==='space'?cfg.displaySize*.36+9:cfg.displaySize*.18+4;
+    desired=flightPos.clone().addScaledVector(forward,-back).addScaledVector(up,rise);
+    camera.position.lerp(desired,1-Math.pow(.012,dt));
+    camTarget.copy(flightPos).addScaledVector(forward,state.mode==='space'?340:150);
+    camera.up.lerp(up,.09).normalize();
+    cockpitOverlay.classList.remove('visible');
+  }else if(state.cameraMode===1){
+    desired=flightPos.clone().addScaledVector(forward,Math.max(.9,cfg.displaySize*.06)).addScaledVector(up,Math.max(.75,cfg.displaySize*.045));
+    camera.position.lerp(desired,1-Math.pow(.0005,dt));
+    camTarget.copy(flightPos).addScaledVector(forward,state.mode==='space'?420:220);
+    camera.up.lerp(up,.2).normalize();
+    cockpitOverlay.classList.add('visible');
+  }else{
+    desired=flightPos.clone().add(new THREE.Vector3(0,state.mode==='space'?210:32,state.mode==='space'?280:50));
+    camera.position.lerp(desired,1-Math.pow(.03,dt));
+    camTarget.copy(flightPos);camera.up.lerp(up,.05).normalize();cockpitOverlay.classList.remove('visible');
+  }
+  camera.lookAt(camTarget);
+};
+
+createTerrainTile=async function(tx,ty,z,originTile,tileMeters){
+  const seg=40;
+  const geo=new THREE.PlaneGeometry(tileMeters,tileMeters,seg,seg);
+  const n=2**z,serverX=((tx%n)+n)%n,serverY=Math.max(0,Math.min(n-1,ty));
+  const sat=`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${serverY}/${serverX}`;
+  const ez=Math.min(z,15),shift=Math.max(0,z-15);
+  const elevation=`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${ez}/${serverX>>shift}/${serverY>>shift}.png`;
+  const texture=await loadTexture(sat);
+  if(texture){texture.anisotropy=Math.min(12,renderer.capabilities.getMaxAnisotropy());texture.colorSpace=THREE.SRGBColorSpace;}
+  const mat=new THREE.MeshStandardMaterial({map:texture,color:texture?0xffffff:0x52604d,roughness:.94,metalness:0});
+  const heights=new Float32Array((seg+1)*(seg+1));let sum=0,count=0;
+  try{
+    const data=await imageData(elevation),pos=geo.attributes.position;
+    for(let i=0;i<pos.count;i++){
+      const vx=(i%(seg+1))/seg,vy=Math.floor(i/(seg+1))/seg;
+      const px=Math.max(0,Math.min(data.width-1,Math.round(vx*(data.width-1)))),py=Math.max(0,Math.min(data.height-1,Math.round(vy*(data.height-1))));
+      const idx=(py*data.width+px)*4;
+      const h=data.data[idx]*256+data.data[idx+1]+data.data[idx+2]/256-32768;
+      heights[i]=h;pos.setZ(i,h);sum+=h;count++;
+    }
+    pos.needsUpdate=true;geo.computeVertexNormals();
+  }catch(e){console.warn('Elevation tile unavailable',e);}
+  const mesh=new THREE.Mesh(geo,mat);mesh.rotation.x=-Math.PI/2;mesh.position.x=(tx+.5-originTile.x)*tileMeters;mesh.position.z=(ty+.5-originTile.y)*tileMeters;
+  mesh.userData={tx,ty,z,size:tileMeters,seg,heights,avgHeight:count?sum/count:0,elevationLoaded:count>0};return mesh;
+};
+
+loadBuildings=async function(lat,lon){
+  if(!state.buildings||state.buildingLoading)return;
+  state.buildingLoading=true;const gen=++buildingGeneration;
+  const query=`[out:json][timeout:24];way["building"](around:3300,${lat},${lon});out geom;`;
+  const endpoints=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
+  try{
+    let json=null;
+    for(const endpoint of endpoints){
+      try{const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:`data=${encodeURIComponent(query)}`});if(r.ok){json=await r.json();break;}}catch{}
+    }
+    if(!json)throw new Error('No Overpass endpoint available');if(gen!==buildingGeneration)return;
+    clearGroup(buildingsGroup);
+    const mats={default:new THREE.MeshStandardMaterial({color:0xbdb9b0,roughness:.9,metalness:.01}),glass:new THREE.MeshStandardMaterial({color:0x8faeba,roughness:.38,metalness:.08}),brick:new THREE.MeshStandardMaterial({color:0x9b7564,roughness:.94,metalness:0})};
+    let made=0;
+    for(const way of json.elements||[]){
+      if(made>=1000||!way.geometry||way.geometry.length<4)continue;
+      try{
+        const pts=way.geometry.map(g=>localFromGeo(g.lat,g.lon));
+        const shape=new THREE.Shape();shape.moveTo(pts[0].x,-pts[0].z);for(let i=1;i<pts.length;i++)shape.lineTo(pts[i].x,-pts[i].z);
+        const h=parseBuildingHeight(way.tags),geo=new THREE.ExtrudeGeometry(shape,{depth:h,bevelEnabled:false,steps:1});geo.rotateX(-Math.PI/2);
+        let cx=0,cz=0;pts.forEach(p=>{cx+=p.x;cz+=p.z});cx/=pts.length;cz/=pts.length;
+        const tags=way.tags||{},material=(tags['building:material']==='glass'||h>80)?mats.glass:(tags['building:material']==='brick'?mats.brick:mats.default);
+        const mesh=new THREE.Mesh(geo,material);mesh.position.y=terrainHeightAt(cx,cz)+.25;mesh.userData.sharedMaterial=true;buildingsGroup.add(mesh);made++;
+      }catch{}
+    }
+    state.buildingCenter={lat,lon};if(made)toast(`${made.toLocaleString()} mapped 3D buildings loaded`);
+  }catch(e){console.warn('Buildings unavailable',e);state.buildingCenter={lat,lon};}
+  finally{state.buildingLoading=false;}
+};
+
+const _loadTerrain=loadTerrain;
+loadTerrain=async function(lat,lon,name='EARTH'){
+  state.terrainZoom=13;state.terrainRadius=2;if($('terrainSelect'))$('terrainSelect').value='2';
+  await _loadTerrain(lat,lon,name);
+  if(state.mode==='earth'){
+    flightPos.y=Math.max(state.terrainBase+360,480);state.altitude=flightPos.y;state.terrainClock=.7;
+    if(state.buildings&&state.currentGeo){buildingGeneration++;state.buildingLoading=false;state.buildingCenter=null;clearGroup(buildingsGroup);loadBuildings(state.currentGeo.lat,state.currentGeo.lon);}
+  }
+};
+
+const _beginGame=beginGame;
+beginGame=async function(mode='earth'){
+  if(mode==='earth'&&!state._enhancedFirstSpawn){state._enhancedFirstSpawn=true;state.location={name:'WASHINGTON, D.C.',lat:38.9072,lon:-77.0369};}
+  await _beginGame(mode);
+};
