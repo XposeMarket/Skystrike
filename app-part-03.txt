@@ -17,14 +17,28 @@ function updateSolar(dt,elapsed) {
 
 function updateFlight(dt) {
   const cfg=aircraftConfigs[state.currentAircraft];
-  const rollRate=1.35, pitchRate=.95, yawRate=.52;
-  state.roll += state.stickX*rollRate*dt;
-  state.pitch += state.stickY*pitchRate*dt;
-  state.yawAngle += (state.yaw + Math.sin(state.roll)*.23)*yawRate*dt;
-  state.roll *= Math.pow(.86,dt*2.2);
-  state.pitch *= Math.pow(.90,dt*1.4);
+
+  // Mobile flight-stick controls: horizontal input commands a bank AND a coordinated turn.
+  // Right stick = right bank/right turn, left stick = left bank/left turn.
+  // Vertical input keeps traditional flight-stick behavior: pull down to pitch up.
+  const maxRoll=1.08, maxPitch=.82;
+  const rollBlend=1-Math.exp(-dt*5.4), pitchBlend=1-Math.exp(-dt*4.2);
+  const targetRoll=-state.stickX*maxRoll;
+  const targetPitch=state.stickY*maxPitch;
+  state.roll=THREE.MathUtils.lerp(state.roll,targetRoll,rollBlend);
+  state.pitch=THREE.MathUtils.lerp(state.pitch,targetPitch,pitchBlend);
   state.pitch=THREE.MathUtils.clamp(state.pitch,-1.2,1.2);
   state.roll=THREE.MathUtils.clamp(state.roll,-1.45,1.45);
+
+  // In this coordinate system decreasing yawAngle turns the heading right.
+  // Negating rudder input fixes the old left/right reversal. Bank coupling makes
+  // the aircraft actually carve through a turn instead of merely rolling in place.
+  const rudderYawRate=state.mode==='space'?.92:1.05;
+  const bankYawRate=state.mode==='space'?.62:.78;
+  const directTurnRate=state.mode==='space'?.16:.24;
+  const speedTurnFactor=state.mode==='earth'?THREE.MathUtils.clamp(180/Math.max(state.speed,80),.55,1.35):1;
+  const turnRate=(-state.yaw*rudderYawRate + Math.sin(state.roll)*bankYawRate - state.stickX*directTurnRate)*speedTurnFactor;
+  state.yawAngle += turnRate*dt;
 
   if(state.mode==='earth'){
     const max = cfg.maxSpeed*(state.boost?1.16:1);
@@ -39,10 +53,22 @@ function updateFlight(dt) {
     state.terrainBase=terrainHeightAt(flightPos.x,flightPos.z);
     const minY=state.terrainBase+12;
     if(flightPos.y<minY){flightPos.y=minY;state.pitch=Math.max(state.pitch,.05);state.speed*=.985;}
+
+    // Automatic orbital handoff: keep climbing hard in an atmospheric aircraft and
+    // the game swaps to the Shuttle before the service ceiling, preserving the flight.
+    if(!cfg.space && flightPos.y>cfg.ceiling*.78 && state.throttle>.72 && state.pitch>.10){
+      toast('AUTO ORBIT · SWITCHING TO SPACE SHUTTLE');
+      setAircraft('shuttle',true);
+    }
     if(!cfg.space&&flightPos.y>cfg.ceiling){flightPos.y=cfg.ceiling;state.pitch=Math.min(state.pitch,0);state.speed*=.992;}
+
     const atmoFade=THREE.MathUtils.clamp(1-flightPos.y/85000,0,1);if(skyMaterial)skyMaterial.uniforms.fade.value=atmoFade;scene.fog.density=.000018*Math.pow(atmoFade,1.8);
     state.terrainClock+=dt;if(state.terrainClock>.65){state.terrainClock=0;refreshTerrainTiles(false);rebaseEarth();if(state.buildings&&(!state.buildingCenter||geoDistanceMeters(state.currentGeo,state.buildingCenter)>3500))loadBuildings(state.currentGeo.lat,state.currentGeo.lon);}
-    if(cfg.space && flightPos.y>70000 && state.throttle>.92 && state.boost) enterSpace('Earth');
+
+    // No ORBIT button required: once the Shuttle reaches the upper atmosphere,
+    // transition into the orbital coordinate system automatically.
+    if(cfg.space && flightPos.y>45000){toast('SPACE REACHED · ENTERING ORBIT');enterSpace('Earth');return;}
+
     state.altitude=flightPos.y;
     state.heading=(THREE.MathUtils.radToDeg(-state.yawAngle)%360+360)%360;
   }else{
