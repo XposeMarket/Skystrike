@@ -1,70 +1,84 @@
-# Skystrike: Mountain Front
+# Flight Universe — Three.js Mobile PWA
 
-A Three.js browser flight-combat game with three aircraft eras, runway takeoff and landing, terrain-aware physics, AI dogfighting, cockpit/chase cameras, synthesized sound, persistent best score, and a hidden in-game event.
+A landscape-first mobile flight simulator prototype that lets you fly over streamed real-world Earth imagery/elevation, transition into orbital flight, and navigate a compressed but ephemeris-anchored solar system.
 
-## Run
+## Included now
 
-Because the game uses JavaScript modules, serve the folder through a local web server rather than double-clicking the HTML file.
+- Landscape mobile PWA shell with fullscreen touch controls and installable manifest.
+- Three.js r185 WebGL renderer.
+- Earth flight over Esri World Imagery draped on decoded AWS Terrarium elevation.
+- Continuous moving Earth tile streamer instead of a fixed local patch.
+- Live latitude/longitude tracking and floating-origin rebasing for longer flights.
+- Terrain-height sampling for collision and true AGL readout.
+- Optional OpenStreetMap 3D building footprints with tagged heights where available.
+- Place presets, direct `lat, lon` entry, and Nominatim place search.
+- HUD, chase/cockpit/orbit cameras, pitch/roll stick, rudder buttons, vertical throttle, and afterburner.
+- Three selectable real-source vehicle assets: Dassault Rafale B, NASA Global Hawk, and NASA Space Shuttle. A procedural emergency fallback only appears if a remote model host fails.
+- Atmospheric-to-space transition; orbital mode uses the Space Shuttle.
+- Sun, Mercury, Venus, Earth, Moon, Mars, Jupiter, Saturn, Uranus, Neptune, and Pluto.
+- The eight planets use JPL approximate Keplerian elements to place them from the device's current date; distances and radii are visually compressed for playable travel times.
+- Planet navigation/warp panel and orbit-line display.
+- Mobile performance controls for pixel density, FOV, terrain radius, clouds, buildings, and orbit lines.
+- Service worker that caches the app shell plus finite library/model/planet assets after first successful online use.
 
-- **Windows:** double-click `start-game.bat`.
-- **macOS:** double-click `start-game.command` (you may need to approve it in Privacy & Security the first time).
-- **Any OS:** run `python3 launch.py`.
-
-### Python
+## Run locally
 
 ```bash
-cd Skystrike
-python3 -m http.server 8080
+node server.js
 ```
 
-Open `http://localhost:8080` in Chrome, Edge, Firefox, or Safari.
+Then open `http://localhost:8080` from a browser on the same machine. For actual phone installation, serve it over HTTPS (for example with Vercel, Netlify, Cloudflare Pages, or your own HTTPS host).
 
-### Node
-
-```bash
-npx serve .
-```
-
-The game loads Three.js from jsDelivr, so an internet connection is needed when launching it.
+The detailed Earth layers and place/building search require internet access because their datasets are streamed at runtime.
 
 ## Controls
 
-- W / S: throttle up or down
-- Mouse: pitch and directional turn
-- A / D: bank and roll
-- Space + A/D: accelerated barrel roll
-- Shift: fire
-- R: reload
-- C: chase/cockpit camera
-- Escape: pause
+### Mobile landscape
 
-## Performance
+- Left stick: pitch + roll
+- RUD ◀ / ▶: rudder / yaw
+- Right vertical slider: throttle
+- AB: afterburner / boost
+- CAM: chase → cockpit → orbit camera
+- ORBIT: switch to the Space Shuttle if needed and enter orbital mode
+- EARTH: return to your last live Earth position
+- ☰: aircraft, Earth places, solar navigation, and graphics/system settings
 
-The optimized build dynamically adjusts its internal 3D render scale. Use the in-game sensitivity setting and reduce the browser window size only if additional performance is needed.
+### Keyboard fallback
 
-## Control Fix Update
+- W/S: pitch
+- A/D: roll
+- Q/E: yaw
+- Shift: boost
+- V: camera
+- O: Earth/orbit toggle
 
-This build corrects the default horizontal/vertical mouse steering, A/D bank direction, and runway spawn/collision height.
+## Architectural limits of this build
 
+This is a serious playable vertical slice, not a browser clone of Microsoft Flight Simulator. The largest remaining steps for a full production simulator are:
 
-## Control correction v2
-Vertical mouse flight input has been reversed so moving the mouse upward pitches the aircraft upward and moving it downward pitches downward. The script URL is cache-busted to prevent an older game.js from being reused.
+- physically richer aerodynamic/engine models per aircraft;
+- airport/runway/nav-aid databases and landing systems;
+- weather, winds, clouds, time-of-day, and atmospheric scattering;
+- photorealistic 3D city/landmark tiles from a licensed 3D-tiles provider;
+- planetary surface terrain so Mars, the Moon, etc. can be descended onto rather than only visited in orbital space;
+- persistent bounded IndexedDB tile caching and a smarter quadtree/LOD terrain scheduler;
+- cockpit interiors, landing gear, control surfaces, sound, damage, missions, and multiplayer.
 
+## Data / asset attribution and usage notes
 
-## Performance-optimized build
+- Three.js — MIT.
+- JPL Solar System Dynamics — approximate planetary-position formulae/elements used for current planetary placement.
+- Esri World Imagery — streamed at runtime; usage remains subject to Esri terms and attribution requirements.
+- AWS Terrain Tiles / Mapzen Terrarium — elevation stream.
+- OpenStreetMap contributors — building footprints/tags and Nominatim place search; OSM data is subject to ODbL and service usage policies.
+- Solar System Scope texture set — CC BY 4.0 where applicable; based on NASA imagery/elevation and artistic gap filling for some bodies.
+- Three.js Moon example texture.
+- Rafale model source — OpenSkyFlight repository / its documented original model attribution.
+- NASA Global Hawk and Space Shuttle — NASA Science 3D Resources; follow NASA Images and Media Usage Guidelines.
 
-This build defaults to a lower internal render scale designed for a 4 GB graphics card while keeping the browser HUD at full resolution. It dynamically adjusts 3D resolution based on measured frame rate.
+For a commercial release, review every upstream imagery/model/API license and replace any provider whose terms do not match the intended business use.
 
-Additional changes:
-- Mouse sensitivity doubled.
-- Shadow resolution reduced and shadow maps update at a controlled rate.
-- Runway lights and clouds are instanced to cut draw calls.
-- Vegetation density and terrain subdivisions are reduced moderately.
-- Rapid-fire weapon audio reuses a shared noise buffer.
-- Bullet geometry and explosion geometry are reused.
-- HUD and radar updates are throttled independently from flight physics.
-- Airport rendering is culled when far outside the combat area.
+## Repository deployment layout
 
-## Repository build
-
-The menu artwork is embedded as a compressed WebP data asset inside `style.css`, reducing the initial asset size and keeping deployment self-contained.
+The production branch stores the large flight module in `app-part-*.txt` chunks. `bootstrap.js` concatenates them byte-for-byte at runtime and imports the resulting ES module. This keeps the connected Git/Vercel upload path reliable without changing game behavior.
