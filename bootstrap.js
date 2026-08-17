@@ -1,11 +1,13 @@
+const VERSION = 'terrain-cockpit-v1';
 const PARTS = [
   './app-part-00.txt',
   './app-part-01.txt',
   './app-part-02.txt',
   './app-part-03.txt',
-  './app-part-04.txt'
-];
-const responses = await Promise.all(PARTS.map((url) => fetch(url)));
+  './app-part-04.txt',
+  './app-part-05.txt'
+].map((url) => `${url}?v=${VERSION}`);
+const responses = await Promise.all(PARTS.map((url) => fetch(url, { cache: 'no-store' })));
 for (const response of responses) {
   if (!response.ok) throw new Error(`Failed to load ${response.url}: ${response.status}`);
 }
