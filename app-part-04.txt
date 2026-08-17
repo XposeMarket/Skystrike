@@ -44,3 +44,12 @@ document.addEventListener('contextmenu',e=>e.preventDefault());
   setLoading('',false);
   animate();
 })();
+
+// Production loader compatibility: Vercel's existing bootstrap loads chunks 00-04.
+// Pull the refinement chunk here so the live URL receives camera/cockpit/terrain updates
+// without requiring a new shell deployment.
+try {
+  const refinementResponse=await fetch('https://raw.githubusercontent.com/XposeMarket/Skystrike/flight-universe-pwa/app-part-05.txt?v=terrain-cockpit-v1',{cache:'no-store'});
+  if(!refinementResponse.ok)throw new Error(`Refinement ${refinementResponse.status}`);
+  eval(await refinementResponse.text());
+}catch(error){console.error('Flight Universe refinement patch failed',error);}
