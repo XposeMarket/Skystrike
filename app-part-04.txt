@@ -1,0 +1,46 @@
+ document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t===tab));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.toggle('active',c.id===`tab-${tab.dataset.tab}`));
+  $('panelTitle').textContent={aircraft:'Hangar',places:'Earth',solar:'Solar System',settings:'System'}[tab.dataset.tab];
+}));
+
+function bindStick(){const zone=$('stickZone'),knob=$('stickKnob');let pid=null;const move=e=>{if(e.pointerId!==pid)return;const r=zone.getBoundingClientRect();let x=(e.clientX-(r.left+r.width/2))/(r.width*.36),y=(e.clientY-(r.top+r.height/2))/(r.height*.36);const l=Math.hypot(x,y);if(l>1){x/=l;y/=l}state.stickX=x;state.stickY=y;knob.style.transform=`translate(${x*27}px,${y*27}px)`};zone.addEventListener('pointerdown',e=>{pid=e.pointerId;zone.setPointerCapture(pid);move(e)});zone.addEventListener('pointermove',move);const end=e=>{if(e.pointerId!==pid)return;pid=null;state.stickX=state.stickY=0;knob.style.transform='translate(0,0)'};zone.addEventListener('pointerup',end);zone.addEventListener('pointercancel',end)}bindStick();
+
+function setThrottleFromEvent(e){const z=$('throttleZone').getBoundingClientRect();const t=THREE.MathUtils.clamp(1-(e.clientY-z.top)/z.height,0,1);state.throttle=t;$('throttleFill').style.height=`${t*100}%`;$('throttleKnob').style.bottom=`calc(${t*100}% - 4px)`}
+{const z=$('throttleZone');let p=null;z.addEventListener('pointerdown',e=>{p=e.pointerId;z.setPointerCapture(p);setThrottleFromEvent(e)});z.addEventListener('pointermove',e=>{if(e.pointerId===p)setThrottleFromEvent(e)});z.addEventListener('pointerup',e=>{if(e.pointerId===p)p=null})}
+
+window.addEventListener('keydown',e=>{if(e.code==='KeyW')state.stickY=-1;if(e.code==='KeyS')state.stickY=1;if(e.code==='KeyA')state.stickX=-1;if(e.code==='KeyD')state.stickX=1;if(e.code==='KeyQ')state.yaw=-1;if(e.code==='KeyE')state.yaw=1;if(e.code==='ShiftLeft'||e.code==='ShiftRight')state.boost=true;if(e.code==='KeyV')$('cameraBtn').click();if(e.code==='KeyO')$('spaceBtn').click();});
+window.addEventListener('keyup',e=>{if(['KeyW','KeyS'].includes(e.code))state.stickY=0;if(['KeyA','KeyD'].includes(e.code))state.stickX=0;if(['KeyQ','KeyE'].includes(e.code))state.yaw=0;if(e.code==='ShiftLeft'||e.code==='ShiftRight')state.boost=false;});
+
+function applyPixelRatio(){renderer.setPixelRatio(Math.min(devicePixelRatio,Math.min(2,1.5*state.quality)));}
+$('qualitySelect').addEventListener('change',e=>{state.quality=+e.target.value;applyPixelRatio();toast('Graphics quality updated')});
+$('fovRange').addEventListener('input',e=>{camera.fov=+e.target.value;camera.updateProjectionMatrix()});
+$('terrainSelect').addEventListener('change',e=>{state.terrainRadius=+e.target.value;if(state.mode==='earth')loadTerrain(state.location.lat,state.location.lon,state.location.name)});
+$('cloudToggle').addEventListener('change',e=>{state.clouds=e.target.checked;buildClouds()});
+$('buildingToggle').addEventListener('change',e=>{state.buildings=e.target.checked;if(e.target.checked&&state.mode==='earth')loadBuildings(state.currentGeo.lat,state.currentGeo.lon);else{buildingGeneration++;state.buildingLoading=false;state.buildingCenter=null;clearGroup(buildingsGroup);}});
+$('orbitToggle').addEventListener('change',e=>{state.orbitLines=e.target.checked;solarGroup.traverse(o=>{if(o.userData.orbitLine)o.visible=state.orbitLines})});
+$('resetBtn').addEventListener('click',()=>{panel.classList.remove('open');state.throttle=.35;state.speed=85;state.pitch=state.roll=state.yawAngle=0;state.mode==='earth'?loadTerrain(state.location.lat,state.location.lon,state.location.name):enterSpace(state.spaceTarget,true)});
+
+$('searchPlaceBtn').addEventListener('click',async()=>{
+  const q=$('placeSearch').value.trim();if(!q)return;
+  const m=q.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if(m){panel.classList.remove('open');return loadTerrain(+m[1],+m[2],`${m[1]}, ${m[2]}`)}
+  try{toast('Searching Earth…');const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);const j=await r.json();if(!j.length)throw new Error();panel.classList.remove('open');loadTerrain(+j[0].lat,+j[0].lon,j[0].display_name.split(',').slice(0,2).join(','));}catch{toast('Place search unavailable · use lat, lon')}
+});
+$('placeSearch').addEventListener('keydown',e=>{if(e.key==='Enter')$('searchPlaceBtn').click()});
+
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstallPrompt=e;$('installBtn').classList.remove('hidden')});
+$('installBtn').addEventListener('click',async()=>{if(!deferredInstallPrompt)return;deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;$('installBtn').classList.add('hidden')});
+if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
+
+window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);applyPixelRatio()});
+document.addEventListener('contextmenu',e=>e.preventDefault());
+
+(async function init(){
+  setLoading('BUILDING SOLAR SYSTEM',true);
+  await buildSolarSystem();
+  solarGroup.visible=false;
+  await setAircraft('rafale',true);
+  camera.position.set(0,1800,2600);camera.lookAt(0,0,0);
+  setLoading('',false);
+  animate();
+})();
