@@ -1,0 +1,125 @@
+Orbital frame · ${target}`)}
+}
+
+function returnToEarth() {
+  const g=state.currentGeo||state.location;loadTerrain(g.lat,g.lon,state.location.name);
+  transitionFlash=1;
+}
+
+function updateSolar(dt,elapsed) {
+  const ephemerisStamp=Math.floor(elapsed/10),refreshEphemeris=ephemerisStamp!==lastEphemerisUpdate;if(refreshEphemeris)lastEphemerisUpdate=ephemerisStamp;
+  solarBodies.forEach(({mesh,def})=>{
+    mesh.rotation.y += dt*(def.name==='Jupiter'?.08:.025);
+    if(mesh.userData.moonPivot) mesh.userData.moonPivot.rotation.y += dt*.12;
+    if(refreshEphemeris&&jplElements[def.name]){const p=planetVisualPosition(def.name,new Date());if(p)mesh.position.copy(p);}
+  });
+}
+
+function updateFlight(dt) {
+  const cfg=aircraftConfigs[state.currentAircraft];
+  const rollRate=1.35, pitchRate=.95, yawRate=.52;
+  state.roll += state.stickX*rollRate*dt;
+  state.pitch += state.stickY*pitchRate*dt;
+  state.yawAngle += (state.yaw + Math.sin(state.roll)*.23)*yawRate*dt;
+  state.roll *= Math.pow(.86,dt*2.2);
+  state.pitch *= Math.pow(.90,dt*1.4);
+  state.pitch=THREE.MathUtils.clamp(state.pitch,-1.2,1.2);
+  state.roll=THREE.MathUtils.clamp(state.roll,-1.45,1.45);
+
+  if(state.mode==='earth'){
+    const max = cfg.maxSpeed*(state.boost?1.16:1);
+    const target=Math.max(22,state.throttle*max);
+    state.speed += (target-state.speed)*Math.min(1,dt*(state.speed<target?.7:1.4));
+    flightEuler.set(state.pitch,state.yawAngle,state.roll,'YXZ');flightQuat.setFromEuler(flightEuler);
+    const forward=tmpV.set(0,0,-1).applyQuaternion(flightQuat).normalize();
+    const lift=Math.max(0,(state.speed-cfg.minSpeed)/(cfg.maxSpeed-cfg.minSpeed));
+    flightPos.addScaledVector(forward,state.speed*dt);
+    flightPos.y += (lift*.35 - (1-lift)*1.8)*dt;
+    state.currentGeo=geoFromFlight();
+    state.terrainBase=terrainHeightAt(flightPos.x,flightPos.z);
+    const minY=state.terrainBase+12;
+    if(flightPos.y<minY){flightPos.y=minY;state.pitch=Math.max(state.pitch,.05);state.speed*=.985;}
+    if(!cfg.space&&flightPos.y>cfg.ceiling){flightPos.y=cfg.ceiling;state.pitch=Math.min(state.pitch,0);state.speed*=.992;}
+    const atmoFade=THREE.MathUtils.clamp(1-flightPos.y/85000,0,1);if(skyMaterial)skyMaterial.uniforms.fade.value=atmoFade;scene.fog.density=.000018*Math.pow(atmoFade,1.8);
+    state.terrainClock+=dt;if(state.terrainClock>.65){state.terrainClock=0;refreshTerrainTiles(false);rebaseEarth();if(state.buildings&&(!state.buildingCenter||geoDistanceMeters(state.currentGeo,state.buildingCenter)>3500))loadBuildings(state.currentGeo.lat,state.currentGeo.lon);}
+    if(cfg.space && flightPos.y>70000 && state.throttle>.92 && state.boost) enterSpace('Earth');
+    state.altitude=flightPos.y;
+    state.heading=(THREE.MathUtils.radToDeg(-state.yawAngle)%360+360)%360;
+  }else{
+    const accel=(0.25+state.throttle*1.6)*(state.boost?3.5:1);
+    state.spaceVelocity=THREE.MathUtils.clamp(state.spaceVelocity+accel*dt*.05,.15,9);
+    flightEuler.set(state.pitch,state.yawAngle,state.roll,'YXZ');flightQuat.setFromEuler(flightEuler);
+    const forward=tmpV.set(0,0,-1).applyQuaternion(flightQuat).normalize();
+    flightPos.addScaledVector(forward,state.spaceVelocity*1100*dt);
+    state.speed=state.spaceVelocity*3200;
+    const targetBody=solarBodies.get(state.spaceTarget);
+    if(targetBody){const p=targetBody.mesh.getWorldPosition(tmpV2);state.altitude=flightPos.distanceTo(p)*1000;}
+    state.heading=(THREE.MathUtils.radToDeg(-state.yawAngle)%360+360)%360;
+  }
+  aircraftRoot.position.copy(flightPos);aircraftRoot.quaternion.copy(flightQuat);
+}
+
+function updateCamera(dt) {
+  const forward=tmpV.set(0,0,-1).applyQuaternion(flightQuat).normalize();
+  const up=tmpV2.set(0,1,0).applyQuaternion(flightQuat).normalize();
+  let desired;
+  if(state.cameraMode===0){desired=flightPos.clone().addScaledVector(forward, state.mode==='space' ? -200 : -35).addScaledVector(up,state.mode==='space'?70:12);}
+  else if(state.cameraMode===1){desired=flightPos.clone().addScaledVector(forward,5).addScaledVector(up,2.2);}
+  else {desired=flightPos.clone().add(new THREE.Vector3(0,state.mode==='space'?350:55,state.mode==='space'?500:80));}
+  if(state.cameraMode===1){camera.position.lerp(desired,1-Math.pow(.001,dt));camTarget.copy(flightPos).addScaledVector(forward,100);}else{camera.position.lerp(desired,1-Math.pow(.02,dt));camTarget.copy(flightPos).addScaledVector(forward,state.mode==='space'?500:120);}
+  camera.up.lerp(up, state.cameraMode===1?.15:.04).normalize();
+  camera.lookAt(camTarget);
+}
+
+function updateHUD(elapsed) {
+  const earth=state.mode==='earth';
+  $('speedText').textContent=Math.round(earth?state.speed*1.94384:state.speed).toLocaleString();
+  $('speedUnit').textContent=earth?'KT':'KM/S';
+  $('altText').textContent=Math.round(earth?state.altitude*3.28084:state.altitude/1000).toLocaleString();
+  $('altUnit').textContent=earth?'FT':'KM';
+  $('headingText').textContent=String(Math.round(state.heading)).padStart(3,'0');
+  $('thrText').textContent=Math.round(state.throttle*100);
+  $('aglText').textContent=Math.max(0,Math.round((state.altitude-state.terrainBase)*3.28084)).toLocaleString();
+  $('fpsText').textContent=fps;
+  if(earth&&state.currentGeo&&frames%20===0){const g=state.currentGeo;$('locationText').textContent=`${state.location.name} · ${Math.abs(g.lat).toFixed(2)}°${g.lat>=0?'N':'S'} ${Math.abs(g.lon).toFixed(2)}°${g.lon>=0?'E':'W'}`;}
+  $('horizon').style.transform=`translate(-50%,-50%) rotate(${THREE.MathUtils.radToDeg(-state.roll)}deg) translateY(${state.pitch*22}px)`;
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt=Math.min(clock.getDelta(),.05); const elapsed=clock.elapsedTime;
+  updateSolar(dt,elapsed);
+  if(state.running){updateFlight(dt);updateCamera(dt);updateHUD(elapsed);}
+  cloudGroup.children.forEach((c,i)=>{c.position.x+=dt*(3+(i%7));if(c.position.x>15000)c.position.x=-15000;});
+  frames++; if(elapsed-lastFPSUpdate>=1){fps=frames;frames=0;lastFPSUpdate=elapsed;}
+  renderer.render(scene,camera);
+}
+
+function populateUI() {
+  $('aircraftCards').innerHTML=Object.entries(aircraftConfigs).map(([k,a])=>`<button class="card ${k===state.currentAircraft?'active':''}" data-aircraft="${k}"><div class="meta"><h3>${a.name}</h3><p>${a.role}</p></div><span class="tag">${a.tag}</span></button>`).join('');
+  document.querySelectorAll('[data-aircraft]').forEach(el=>el.addEventListener('click',()=>setAircraft(el.dataset.aircraft)));
+  $('placeCards').innerHTML=places.map((p,i)=>`<button class="card" data-place="${i}"><div class="meta"><h3>${p.name}</h3><p>${p.lat.toFixed(3)}°, ${p.lon.toFixed(3)}°</p></div><span class="tag">FLY</span></button>`).join('');
+  document.querySelectorAll('[data-place]').forEach(el=>el.addEventListener('click',()=>{const p=places[+el.dataset.place];panel.classList.remove('open');loadTerrain(p.lat,p.lon,p.name)}));
+  const navBodies=[...planetDefs.slice(0,4),{name:'Moon',orbit:0,navLabel:'Earth satellite'},...planetDefs.slice(4)];
+  $('solarGrid').innerHTML=navBodies.map(p=>`<button class="planet-btn" data-planet="${p.name}"><b>${p.name}</b><span>${p.navLabel|| (p.orbit?`${p.orbit.toLocaleString()}M km orbit`:'system center')}</span></button>`).join('');
+  document.querySelectorAll('[data-planet]').forEach(el=>el.addEventListener('click',()=>{panel.classList.remove('open');enterSpace(el.dataset.planet)}));
+}
+populateUI();
+
+async function beginGame(mode='earth') {
+  if(!state.running){state.running=true;startScreen.classList.add('hidden');hud.classList.remove('hidden');try{await document.documentElement.requestFullscreen?.();}catch{}try{await screen.orientation?.lock?.('landscape');}catch{}}
+  if(mode==='earth') await loadTerrain(state.location.lat,state.location.lon,state.location.name); else {await setAircraft('shuttle',true);enterSpace('Earth',true);}
+}
+
+$('startBtn').addEventListener('click',()=>beginGame('earth'));
+$('quickSpaceBtn').addEventListener('click',()=>beginGame('space'));
+$('menuBtn').addEventListener('click',()=>panel.classList.add('open'));
+$('closePanel').addEventListener('click',()=>panel.classList.remove('open'));
+$('cameraBtn').addEventListener('click',()=>{state.cameraMode=(state.cameraMode+1)%3;toast(['CHASE CAMERA','COCKPIT CAMERA','ORBIT CAMERA'][state.cameraMode])});
+$('spaceBtn').addEventListener('click',()=>{if(state.mode==='space')return returnToEarth();const cfg=aircraftConfigs[state.currentAircraft];if(!cfg.space){toast('Orbital flight requires the Space Shuttle · switching');setAircraft('shuttle');setTimeout(()=>enterSpace('Earth'),350);}else enterSpace('Earth');});
+$('boostBtn').addEventListener('pointerdown',()=>state.boost=true);['pointerup','pointercancel','pointerleave'].forEach(e=>$('boostBtn').addEventListener(e,()=>state.boost=false));
+
+document.querySelectorAll('[data-yaw]').forEach(b=>{b.addEventListener('pointerdown',()=>state.yaw=+b.dataset.yaw);['pointerup','pointercancel','pointerleave'].forEach(e=>b.addEventListener(e,()=>state.yaw=0));});
+
+document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>{
+ 
