@@ -1,4 +1,4 @@
-const VERSION = 'earth-hd-v1';
+const VERSION = 'navigation-v1';
 const PARTS = [
   './app-part-00.txt',
   './app-part-01.txt',

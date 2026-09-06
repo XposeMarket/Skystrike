@@ -140,7 +140,8 @@ function makeVegetationTile(tx,ty,buildingCount){
   const dummy=new THREE.Object3D(),bounds=buildingTileBounds(tx,ty),centerLat=(bounds.south+bounds.north)*.5,centerLon=(bounds.west+bounds.east)*.5;
   for(let i=0;i<count;i++){
     const r1=seededRandom((tx+17)*97+(ty+31)*53+i*7),r2=seededRandom((tx-11)*43+(ty+7)*89+i*11);
-    const lat=bounds.south+(bounds.north-bounds.south)*r1,lon=centerLon+(bounds.east-bounds.west)*(r2-.5),p=localFromGeo(lat,lon),h=terrainHeightAt(p.x,p.z),scale=.72+seededRandom(i+tx*3+ty*5)*.7;\n    if(!Number.isFinite(h))continue;
+    const lat=bounds.south+(bounds.north-bounds.south)*r1,lon=centerLon+(bounds.east-bounds.west)*(r2-.5),p=localFromGeo(lat,lon),h=terrainHeightAt(p.x,p.z),scale=.72+seededRandom(i+tx*3+ty*5)*.7;
+    if(!Number.isFinite(h))continue;
     dummy.position.set(p.x,h+2.1*scale,p.z);dummy.scale.setScalar(scale);dummy.updateMatrix();trunks.setMatrixAt(i,dummy.matrix);
     dummy.position.set(p.x,h+6.7*scale,p.z);dummy.updateMatrix();crowns.setMatrixAt(i,dummy.matrix);
   }

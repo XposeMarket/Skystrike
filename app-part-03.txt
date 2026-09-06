@@ -1,4 +1,4 @@
-Orbital frame · ${target}`)}
+﻿Orbital frame Â· ${target}`)}
 }
 
 function returnToEarth() {
@@ -57,7 +57,7 @@ function updateFlight(dt) {
     // Automatic orbital handoff: keep climbing hard in an atmospheric aircraft and
     // the game swaps to the Shuttle before the service ceiling, preserving the flight.
     if(!cfg.space && flightPos.y>cfg.ceiling*.78 && state.throttle>.72 && state.pitch>.10){
-      toast('AUTO ORBIT · SWITCHING TO SPACE SHUTTLE');
+      toast('AUTO ORBIT Â· SWITCHING TO SPACE SHUTTLE');
       setAircraft('shuttle',true);
     }
     if(!cfg.space&&flightPos.y>cfg.ceiling){flightPos.y=cfg.ceiling;state.pitch=Math.min(state.pitch,0);state.speed*=.992;}
@@ -67,7 +67,7 @@ function updateFlight(dt) {
 
     // No ORBIT button required: once the Shuttle reaches the upper atmosphere,
     // transition into the orbital coordinate system automatically.
-    if(cfg.space && flightPos.y>45000){toast('SPACE REACHED · ENTERING ORBIT');enterSpace('Earth');return;}
+    if(cfg.space && flightPos.y>45000){toast('SPACE REACHED Â· ENTERING ORBIT');enterSpace('Earth');return;}
 
     state.altitude=flightPos.y;
     state.heading=(THREE.MathUtils.radToDeg(-state.yawAngle)%360+360)%360;
@@ -97,6 +97,21 @@ function updateCamera(dt) {
   camera.lookAt(camTarget);
 }
 
+
+function normalizeBearing(value){return (value%360+360)%360;}
+function formatCoordinate(value,positive,negative){return `${Math.abs(value).toFixed(3)}°${value>=0?positive:negative}`;}
+function navigationBearing(from,to){const a1=THREE.MathUtils.degToRad(from.lat),a2=THREE.MathUtils.degToRad(to.lat),dLon=THREE.MathUtils.degToRad(to.lon-from.lon);return normalizeBearing(THREE.MathUtils.radToDeg(Math.atan2(Math.sin(dLon)*Math.cos(a2),Math.cos(a1)*Math.sin(a2)-Math.sin(a1)*Math.cos(a2)*Math.cos(dLon))));}
+function navigationDistance(from,to){const R=6371000,a1=THREE.MathUtils.degToRad(from.lat),a2=THREE.MathUtils.degToRad(to.lat),dLat=a2-a1,dLon=THREE.MathUtils.degToRad(to.lon-from.lon),a=Math.sin(dLat/2)**2+Math.cos(a1)*Math.cos(a2)*Math.sin(dLon/2)**2;return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));}
+function destinationSummary(distance){return distance>=1000000?`${(distance/1000000).toFixed(1)}M KM`:distance>=1000?`${(distance/1000).toFixed(distance<10000?1:0)} KM`:`${Math.round(distance)} M`;}
+function setDestination(place){const lat=THREE.MathUtils.clamp(Number(place.lat),-85.04,85.04),lon=((Number(place.lon)+540)%360)-180;if(!Number.isFinite(lat)||!Number.isFinite(lon))return;state.destination={name:String(place.name||'DESTINATION').split(',').slice(0,2).join(',').toUpperCase(),lat,lon};$('destinationCard').classList.remove('hidden');$('destinationName').textContent=state.destination.name;toast(`NAV POINT SET · ${state.destination.name}`);updateNavigationUI();}
+function clearDestination(){state.destination=null;$('destinationCard').classList.add('hidden');updateNavigationUI();toast('Destination cleared');}
+let navTileImage=null,navTileKey='';
+function resizeNavMap(){const dpr=Math.min(devicePixelRatio||1,2),size=Math.max(160,Math.min(230,Math.round(innerWidth*.19)));navCanvas.width=size*dpr;navCanvas.height=size*dpr;navCanvas.style.width=`${size}px`;navCanvas.style.height=`${size}px`;navCtx.setTransform(dpr,0,0,dpr,0,0);navCanvas._cssSize=size;}
+function loadNavTile(g){const z=11,t=tileXY(g.lat,g.lon,z),x=Math.floor(t.x),y=Math.floor(t.y),key=`${z}/${x}/${y}`;if(key===navTileKey)return;navTileKey=key;const image=new Image();image.crossOrigin='anonymous';image.onload=()=>{if(navTileKey===key){navTileImage=image;drawNavigationMap();}};image.onerror=()=>{};image.src=`https://tile.openstreetmap.org/${z}/${y}/${((x%(2**z))+(2**z))%(2**z)}.png`;}
+function drawNavigationMap(){if(!navCanvas||state.mode!=='earth')return;const size=navCanvas._cssSize||190,c=size/2,ctx=navCtx,range=12000,g=state.currentGeo||state.location;ctx.clearRect(0,0,size,size);ctx.save();ctx.beginPath();ctx.arc(c,c,c-2,0,Math.PI*2);ctx.clip();ctx.fillStyle='rgba(3,13,24,.96)';ctx.fillRect(0,0,size,size);if(navTileImage){ctx.globalAlpha=.72;ctx.drawImage(navTileImage,0,0,size,size);ctx.globalAlpha=1;ctx.fillStyle='rgba(3,14,25,.34)';ctx.fillRect(0,0,size,size);}ctx.strokeStyle='rgba(140,232,255,.22)';ctx.lineWidth=1;for(let i=-2;i<=2;i++){const p=c+i*(c/2.2);ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,size);ctx.stroke();ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(size,p);ctx.stroke();}ctx.beginPath();ctx.arc(c,c,c*.48,0,Math.PI*2);ctx.stroke();ctx.beginPath();ctx.arc(c,c,c*.82,0,Math.PI*2);ctx.stroke();const dest=state.destination;if(dest){const deltaLon=((dest.lon-g.lon+540)%360)-180,east=deltaLon*metersPerLonDegree(g.lat),north=(dest.lat-g.lat)*111320,mag=Math.hypot(east,north),scale=(c-18)/range;let x=c+east*scale,y=c-north*scale;if(mag>range){const k=(c-18)/Math.max(Math.abs(east),Math.abs(north));x=c+east*k;y=c-north*k;}ctx.strokeStyle='rgba(255,212,138,.92)';ctx.lineWidth=2;ctx.setLineDash([5,4]);ctx.beginPath();ctx.moveTo(c,c);ctx.lineTo(x,y);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='#ffd48a';ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#fff1c9';ctx.stroke();ctx.font='700 8px ui-monospace';ctx.textAlign='center';ctx.fillText('DEST',x,Math.max(11,Math.min(size-8,y-9)));}ctx.save();ctx.translate(c,c);ctx.rotate(THREE.MathUtils.degToRad(state.heading));ctx.fillStyle='#8ce8ff';ctx.strokeStyle='#e5fbff';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(0,-11);ctx.lineTo(7,9);ctx.lineTo(0,5);ctx.lineTo(-7,9);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();ctx.restore();ctx.strokeStyle='rgba(140,232,255,.68)';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(c,c,c-1,0,Math.PI*2);ctx.stroke();ctx.fillStyle='#e4fbff';ctx.font='800 9px ui-monospace';ctx.textAlign='center';ctx.fillText('N',c,11);ctx.fillStyle='rgba(220,239,247,.72)';ctx.font='700 7px ui-monospace';ctx.fillText('S',c,size-7);ctx.textAlign='left';ctx.fillText('W',7,c+3);ctx.textAlign='right';ctx.fillText('E',size-7,c+3);}
+function updateNavigationUI(){if(!navCanvas)return;const g=state.currentGeo||state.location,dest=state.destination,hasDest=state.mode==='earth'&&!!dest;$('guidanceCue').classList.toggle('hidden',!hasDest);$('navOverlay').classList.toggle('has-destination',hasDest);if(!hasDest){$('navTargetText').textContent='NO DESTINATION';$('navDistanceText').textContent='--';drawNavigationMap();return;}const distance=navigationDistance(g,dest),bearing=navigationBearing(g,dest),relative=((bearing-state.heading+540)%360)-180,eta=state.speed>4?Math.round(distance/state.speed/60):0;$('navTargetText').textContent=dest.name;$('navDistanceText').textContent=`${destinationSummary(distance)} ? ${Math.round(bearing)}?`;$('guidanceArrow').style.transform=`rotate(${relative}deg)`;$('guidanceText').textContent=`${Math.abs(Math.round(relative))<8?'ON COURSE':relative<0?'TURN LEFT':'TURN RIGHT'} ? ${Math.round(Math.abs(relative))}?`;$('guidanceSubtext').textContent=`${destinationSummary(distance)} remaining ? ETA ${eta?`${eta} MIN`:'--'}`;drawNavigationMap();}
+async function reverseGeocodeCurrent(g,elapsed){if(state.reverseGeocodePending||elapsed-state.reverseGeocodeAt<45||state.mode!=='earth')return;if(state.lastReverseGeo&&navigationDistance(g,state.lastReverseGeo)<2500)return;state.reverseGeocodePending=true;state.reverseGeocodeAt=elapsed;try{const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${g.lat}&lon=${g.lon}&zoom=10`);if(!r.ok)throw new Error();const j=await r.json(),a=j.address||{},label=a.city||a.town||a.village||a.municipality||a.county;if(label){state.location.name=label.toUpperCase();state.lastReverseGeo={...g};}}catch{}finally{state.reverseGeocodePending=false;}}
+
 function updateHUD(elapsed) {
   const earth=state.mode==='earth';
   $('speedText').textContent=Math.round(earth?state.speed*1.94384:state.speed).toLocaleString();
@@ -107,7 +122,7 @@ function updateHUD(elapsed) {
   $('thrText').textContent=Math.round(state.throttle*100);
   $('aglText').textContent=Math.max(0,Math.round((state.altitude-state.terrainBase)*3.28084)).toLocaleString();
   $('fpsText').textContent=fps;
-  if(earth&&state.currentGeo&&frames%20===0){const g=state.currentGeo;$('locationText').textContent=`${state.location.name} · ${Math.abs(g.lat).toFixed(2)}°${g.lat>=0?'N':'S'} ${Math.abs(g.lon).toFixed(2)}°${g.lon>=0?'E':'W'}`;}
+  if(earth&&state.currentGeo&&frames%20===0){const g=state.currentGeo;$('locationText').textContent=`${state.location.name} ? ${formatCoordinate(g.lat,'N','S')} ${formatCoordinate(g.lon,'E','W')}`;reverseGeocodeCurrent(g,clock.elapsedTime);loadNavTile(g);updateNavigationUI();}
   $('horizon').style.transform=`translate(-50%,-50%) rotate(${THREE.MathUtils.radToDeg(-state.roll)}deg) translateY(${state.pitch*22}px)`;
 }
 
@@ -124,7 +139,7 @@ function animate() {
 function populateUI() {
   $('aircraftCards').innerHTML=Object.entries(aircraftConfigs).map(([k,a])=>`<button class="card ${k===state.currentAircraft?'active':''}" data-aircraft="${k}"><div class="meta"><h3>${a.name}</h3><p>${a.role}</p></div><span class="tag">${a.tag}</span></button>`).join('');
   document.querySelectorAll('[data-aircraft]').forEach(el=>el.addEventListener('click',()=>setAircraft(el.dataset.aircraft)));
-  $('placeCards').innerHTML=places.map((p,i)=>`<button class="card" data-place="${i}"><div class="meta"><h3>${p.name}</h3><p>${p.lat.toFixed(3)}°, ${p.lon.toFixed(3)}°</p></div><span class="tag">FLY</span></button>`).join('');
+  $('placeCards').innerHTML=places.map((p,i)=>`<button class="card" data-place="${i}"><div class="meta"><h3>${p.name}</h3><p>${p.lat.toFixed(3)}Â°, ${p.lon.toFixed(3)}Â°</p></div><span class="tag">FLY</span></button>`).join('');
   document.querySelectorAll('[data-place]').forEach(el=>el.addEventListener('click',()=>{const p=places[+el.dataset.place];panel.classList.remove('open');loadTerrain(p.lat,p.lon,p.name)}));
   const navBodies=[...planetDefs.slice(0,4),{name:'Moon',orbit:0,navLabel:'Earth satellite'},...planetDefs.slice(4)];
   $('solarGrid').innerHTML=navBodies.map(p=>`<button class="planet-btn" data-planet="${p.name}"><b>${p.name}</b><span>${p.navLabel|| (p.orbit?`${p.orbit.toLocaleString()}M km orbit`:'system center')}</span></button>`).join('');
@@ -142,10 +157,9 @@ $('quickSpaceBtn').addEventListener('click',()=>beginGame('space'));
 $('menuBtn').addEventListener('click',()=>panel.classList.add('open'));
 $('closePanel').addEventListener('click',()=>panel.classList.remove('open'));
 $('cameraBtn').addEventListener('click',()=>{state.cameraMode=(state.cameraMode+1)%3;toast(['CHASE CAMERA','COCKPIT CAMERA','ORBIT CAMERA'][state.cameraMode])});
-$('spaceBtn').addEventListener('click',()=>{if(state.mode==='space')return returnToEarth();const cfg=aircraftConfigs[state.currentAircraft];if(!cfg.space){toast('Orbital flight requires the Space Shuttle · switching');setAircraft('shuttle');setTimeout(()=>enterSpace('Earth'),350);}else enterSpace('Earth');});
+$('spaceBtn').addEventListener('click',()=>{if(state.mode==='space')return returnToEarth();const cfg=aircraftConfigs[state.currentAircraft];if(!cfg.space){toast('Orbital flight requires the Space Shuttle Â· switching');setAircraft('shuttle');setTimeout(()=>enterSpace('Earth'),350);}else enterSpace('Earth');});
 $('boostBtn').addEventListener('pointerdown',()=>state.boost=true);['pointerup','pointercancel','pointerleave'].forEach(e=>$('boostBtn').addEventListener(e,()=>state.boost=false));
 
 document.querySelectorAll('[data-yaw]').forEach(b=>{b.addEventListener('pointerdown',()=>state.yaw=+b.dataset.yaw);['pointerup','pointercancel','pointerleave'].forEach(e=>b.addEventListener(e,()=>state.yaw=0));});
 
 document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>{
- 
