@@ -1,4 +1,4 @@
-const CORE_CACHE='flight-universe-core-v8-navigation';
+const CORE_CACHE='flight-universe-core-v10-navigation-polish';
 const ASSET_CACHE='flight-universe-assets-v6';
 const CORE=["./","./index.html","./styles.css","./bootstrap.js","./app-part-00.txt","./app-part-01.txt","./app-part-02.txt","./app-part-03.txt","./app-part-04.txt","./app-part-05.txt","./manifest.webmanifest","./icon.svg"];
 const CACHEABLE_EXTERNAL=new Set(['cdn.jsdelivr.net','raw.githubusercontent.com','assets.science.nasa.gov','threejs.org']);
