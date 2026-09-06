@@ -1,0 +1,205 @@
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const $ = (id) => document.getElementById(id);
+const canvas = $('world');
+const loading = $('loading');
+const loadingText = $('loadingText');
+const startScreen = $('startScreen');
+const hud = $('hud');
+const panel = $('panel');
+const toastEl = $('toast');
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.shadowMap.enabled = false;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x01040a);
+scene.fog = new THREE.FogExp2(0x6d8ba4, 0.000018);
+
+const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.1, 2_000_000);
+const clock = new THREE.Clock();
+
+const earthGroup = new THREE.Group();
+const solarGroup = new THREE.Group();
+scene.add(earthGroup, solarGroup);
+
+const hemi = new THREE.HemisphereLight(0xb9d9ff, 0x1e251b, 1.2);
+scene.add(hemi);
+const sunLight = new THREE.DirectionalLight(0xffffff, 2.8);
+sunLight.position.set(1000, 1800, -800);
+scene.add(sunLight);
+
+const loader = new GLTFLoader();
+const texLoader = new THREE.TextureLoader();
+texLoader.setCrossOrigin('anonymous');
+
+const state = {
+  running: false,
+  mode: 'earth',
+  cameraMode: 0,
+  quality: 1,
+  terrainRadius: 1,
+  clouds: true,
+  orbitLines: true,
+  location: { name: 'URBANA, MD', lat: 39.3259, lon: -77.3469 },
+  throttle: 0.35,
+  stickX: 0,
+  stickY: 0,
+  yaw: 0,
+  boost: false,
+  speed: 85,
+  heading: 0,
+  pitch: 0,
+  roll: 0,
+  yawAngle: 0,
+  altitude: 1400,
+  terrainBase: 0,
+  terrainZoom: 12,
+  terrainClock: 0,
+  buildings: true,
+  buildingCenter: null,
+  buildingLoading: false,
+  earthOrigin: { lat: 39.3259, lon: -77.3469 },
+  currentGeo: { lat: 39.3259, lon: -77.3469 },
+  currentAircraft: 'rafale',
+  spaceTarget: 'Earth',
+  spaceVelocity: 0.65,
+  planetScale: 1,
+};
+
+const aircraftConfigs = {
+  rafale: {
+    name: 'Dassault Rafale B', role: 'Supersonic fighter · atmospheric flight', tag: 'JET',
+    model: 'https://raw.githubusercontent.com/jeanjerome/OpenSkyFlight/main/assets/models/rafale/Rafale.gltf',
+    maxSpeed: 690, cruise: 245, displaySize: 16, rotation: [0, Math.PI, 0], minSpeed: 68, ceiling: 15500, space: false,
+  },
+  globalhawk: {
+    name: 'NASA Global Hawk', role: 'High-altitude reconnaissance aircraft', tag: 'NASA',
+    model: 'https://assets.science.nasa.gov/content/dam/science/cds/3d/resources/model/global-hawk/Global%20Hawk.glb',
+    maxSpeed: 175, cruise: 125, displaySize: 40, rotation: [0, Math.PI, 0], minSpeed: 45, ceiling: 19000, space: false,
+  },
+  shuttle: {
+    name: 'NASA Space Shuttle', role: 'Orbital vehicle · Earth ↔ space', tag: 'ORBITAL',
+    model: 'https://assets.science.nasa.gov/content/dam/science/cds/3d/resources/model/space-shuttle-%28d%29/Space%20Shuttle%20%28D%29.glb',
+    maxSpeed: 2100, cruise: 350, displaySize: 38, rotation: [0, Math.PI, 0], minSpeed: 95, ceiling: 100000, space: true,
+  },
+};
+
+const places = [
+  { name: 'Urbana, Maryland', lat: 39.3259, lon: -77.3469 },
+  { name: 'New York City', lat: 40.7128, lon: -74.0060 },
+  { name: 'Washington, D.C.', lat: 38.9072, lon: -77.0369 },
+  { name: 'Grand Canyon', lat: 36.1069, lon: -112.1129 },
+  { name: 'Mount Everest', lat: 27.9881, lon: 86.9250 },
+  { name: 'Tokyo', lat: 35.6762, lon: 139.6503 },
+  { name: 'Dubai', lat: 25.2048, lon: 55.2708 },
+  { name: 'Paris', lat: 48.8566, lon: 2.3522 },
+  { name: 'Sydney', lat: -33.8688, lon: 151.2093 },
+];
+
+const planetDefs = [
+  { name:'Sun', radius:696340, orbit:0, period:0, color:0xffc46b, texture:'2k_sun.jpg' },
+  { name:'Mercury', radius:2439.7, orbit:57.9, period:88, color:0xa49a8f, texture:'2k_mercury.jpg' },
+  { name:'Venus', radius:6051.8, orbit:108.2, period:224.7, color:0xcaa66c, texture:'2k_venus_surface.jpg' },
+  { name:'Earth', radius:6371, orbit:149.6, period:365.25, color:0x5d96ff, texture:'2k_earth_daymap.jpg' },
+  { name:'Mars', radius:3389.5, orbit:227.9, period:687, color:0xb96546, texture:'2k_mars.jpg' },
+  { name:'Jupiter', radius:69911, orbit:778.5, period:4332.6, color:0xc9a77f, texture:'2k_jupiter.jpg' },
+  { name:'Saturn', radius:58232, orbit:1434, period:10759, color:0xd8c18a, texture:'2k_saturn.jpg', ring:true },
+  { name:'Uranus', radius:25362, orbit:2871, period:30687, color:0x8bd4de, texture:'2k_uranus.jpg' },
+  { name:'Neptune', radius:24622, orbit:4495, period:60190, color:0x4d6ed6, texture:'2k_neptune.jpg' },
+  { name:'Pluto', radius:1188.3, orbit:5906, period:90560, color:0xb9a58e, texture:null },
+];
+
+// JPL approximate heliocentric elements and rates (Table 1, J2000; valid 1800–2050).
+// Values are [a,e,I,L,longPeri,longNode] followed by per-century rates in the same order.
+const jplElements = {
+  Mercury:[[0.38709927,0.20563593,7.00497902,252.25032350,77.45779628,48.33076593],[0.00000037,0.00001906,-0.00594749,149472.67411175,0.16047689,-0.12534081]],
+  Venus:[[0.72333566,0.00677672,3.39467605,181.97909950,131.60246718,76.67984255],[0.00000390,-0.00004107,-0.00078890,58517.81538729,0.00268329,-0.27769418]],
+  Earth:[[1.00000261,0.01671123,-0.00001531,100.46457166,102.93768193,0.0],[0.00000562,-0.00004392,-0.01294668,35999.37244981,0.32327364,0.0]],
+  Mars:[[1.52371034,0.09339410,1.84969142,-4.55343205,-23.94362959,49.55953891],[0.00001847,0.00007882,-0.00813131,19140.30268499,0.44441088,-0.29257343]],
+  Jupiter:[[5.20288700,0.04838624,1.30439695,34.39644051,14.72847983,100.47390909],[-0.00011607,-0.00013253,-0.00183714,3034.74612775,0.21252668,0.20469106]],
+  Saturn:[[9.53667594,0.05386179,2.48599187,49.95424423,92.59887831,113.66242448],[-0.00125060,-0.00050991,0.00193609,1222.49362201,-0.41897216,-0.28867794]],
+  Uranus:[[19.18916464,0.04725744,0.77263783,313.23810451,170.95427630,74.01692503],[-0.00196176,-0.00004397,-0.00242939,428.48202785,0.40805281,0.04240589]],
+  Neptune:[[30.06992276,0.00859048,1.77004347,-55.12002969,44.96476227,131.78422574],[0.00026291,0.00005105,0.00035372,218.45945325,-0.32241464,-0.00508664]],
+};
+const AU_MILLION_KM=149.5978707;
+function elementsAt(name,date=new Date()){
+  const e=jplElements[name];if(!e)return null;
+  const T=((date.getTime()/86400000+2440587.5)-2451545.0)/36525;
+  return e[0].map((v,i)=>v+e[1][i]*T);
+}
+function jplEclipticPoint(name,date=new Date(),forcedE=null){
+  const el=elementsAt(name,date);if(!el)return null;
+  const [a,e,I,L,peri,node]=el,d=Math.PI/180;
+  const omega=(peri-node)*d,O=node*d,inc=I*d;
+  let E=forcedE;
+  if(E==null){
+    let M=((L-peri+540)%360-180)*d;E=M;
+    for(let k=0;k<10;k++){const step=(E-e*Math.sin(E)-M)/(1-e*Math.cos(E));E-=step;if(Math.abs(step)<1e-10)break;}
+  }
+  const xp=a*(Math.cos(E)-e),yp=a*Math.sqrt(1-e*e)*Math.sin(E);
+  const cw=Math.cos(omega),sw=Math.sin(omega),cO=Math.cos(O),sO=Math.sin(O),ci=Math.cos(inc),si=Math.sin(inc);
+  const x=(cw*cO-sw*sO*ci)*xp+(-sw*cO-cw*sO*ci)*yp;
+  const y=(cw*sO+sw*cO*ci)*xp+(-sw*sO+cw*cO*ci)*yp;
+  const z=(sw*si)*xp+(cw*si)*yp;
+  return new THREE.Vector3(x,z,y); // ecliptic z becomes scene vertical; ecliptic y becomes scene depth.
+}
+function compressHeliocentric(v){
+  const r=v.length();if(!r)return new THREE.Vector3();
+  return v.multiplyScalar(solarDistance(r*AU_MILLION_KM)/r);
+}
+function planetVisualPosition(name,date=new Date()){
+  const p=jplEclipticPoint(name,date);return p?compressHeliocentric(p):null;
+}
+function orbitVisualPoints(name,date=new Date(),segments=180){
+  const pts=[];for(let i=0;i<segments;i++){const p=jplEclipticPoint(name,date,i/segments*Math.PI*2);if(p)pts.push(compressHeliocentric(p));}return pts;
+}
+
+const solarBodies = new Map();
+const terrainTiles = new THREE.Group();
+const cloudGroup = new THREE.Group();
+const buildingsGroup = new THREE.Group();
+earthGroup.add(terrainTiles, buildingsGroup, cloudGroup);
+const terrainTileMap = new Map();
+const terrainLoading = new Set();
+let terrainGeneration = 0;
+let buildingGeneration = 0;
+
+const aircraftRoot = new THREE.Group();
+scene.add(aircraftRoot);
+let aircraftVisual = null;
+let aircraftLoadToken = 0;
+let groundSample = 0;
+let deferredInstallPrompt = null;
+let lastFPSUpdate = 0, frames = 0, fps = 60;
+let transitionFlash = 0;
+let lastEphemerisUpdate = -1;
+
+const flightPos = new THREE.Vector3(0, 1400, 0);
+const flightQuat = new THREE.Quaternion();
+const flightEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+const tmpV = new THREE.Vector3();
+const tmpV2 = new THREE.Vector3();
+const camTarget = new THREE.Vector3();
+
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => toastEl.classList.remove('show'), 1800);
+}
+
+function setLoading(text, visible = true) {
+  loadingText.textContent = text;
+  loading.classList.toggle('out', !visible);
+}
+
+function makeStars() {
+  const n = 5500;
+  const geo = new THREE.B

@@ -1,0 +1,312 @@
+;
+  terrainTileMap.forEach(mesh=>{terrainTiles.remove(mesh);disposeObject(mesh)});
+  terrainTileMap.clear(); terrainLoading.clear();
+}
+
+function unwrapTileX(x,ref,z){const n=2**z;while(x-ref>n/2)x-=n;while(x-ref<-n/2)x+=n;return x;}
+function metersPerLonDegree(lat){return 111320*Math.max(.02,Math.cos(lat*Math.PI/180));}
+function geoFromFlight(){
+  const lat=THREE.MathUtils.clamp(state.earthOrigin.lat-flightPos.z/111320,-85.04,85.04);
+  let lon=state.earthOrigin.lon+flightPos.x/metersPerLonDegree(state.earthOrigin.lat);
+  lon=((lon+540)%360)-180;
+  return {lat,lon};
+}
+function localFromGeo(lat,lon){
+  let dlon=lon-state.earthOrigin.lon;if(dlon>180)dlon-=360;if(dlon<-180)dlon+=360;
+  return {x:dlon*metersPerLonDegree(state.earthOrigin.lat),z:(state.earthOrigin.lat-lat)*111320};
+}
+
+function terrainHeightAt(x,z){
+  for(const mesh of terrainTileMap.values()){
+    const {size,seg,heights}=mesh.userData;
+    const u=(x-(mesh.position.x-size/2))/size;
+    const v=(z-(mesh.position.z-size/2))/size;
+    if(u<0||u>1||v<0||v>1)continue;
+    const gx=THREE.MathUtils.clamp(u*seg,0,seg), gy=THREE.MathUtils.clamp(v*seg,0,seg);
+    const x0=Math.floor(gx),y0=Math.floor(gy),x1=Math.min(seg,x0+1),y1=Math.min(seg,y0+1);
+    const fx=gx-x0,fy=gy-y0,idx=(xx,yy)=>yy*(seg+1)+xx;
+    const h00=heights[idx(x0,y0)],h10=heights[idx(x1,y0)],h01=heights[idx(x0,y1)],h11=heights[idx(x1,y1)];
+    return THREE.MathUtils.lerp(THREE.MathUtils.lerp(h00,h10,fx),THREE.MathUtils.lerp(h01,h11,fx),fy);
+  }
+  return state.terrainBase||0;
+}
+
+async function refreshTerrainTiles(initial=false){
+  if(state.mode!=='earth'||!state.earthOriginTile)return;
+  const gen=terrainGeneration, z=state.terrainZoom, radius=state.terrainRadius;
+  const live=geoFromFlight(); state.currentGeo=live;
+  const c=tileXY(live.lat,live.lon,z);c.x=unwrapTileX(c.x,state.earthOriginTile.x,z);
+  const cx=Math.floor(c.x),cy=Math.floor(c.y),desired=new Set(),jobs=[];
+  for(let dy=-radius;dy<=radius;dy++)for(let dx=-radius;dx<=radius;dx++){
+    const tx=cx+dx,ty=cy+dy,key=`${z}/${tx}/${ty}`;desired.add(key);
+    if(terrainTileMap.has(key)||terrainLoading.has(key))continue;
+    terrainLoading.add(key);
+    const job=createTerrainTile(tx,ty,z,state.earthOriginTile,state.earthTileMeters).then(mesh=>{
+      if(gen!==terrainGeneration){disposeObject(mesh);return;}
+      terrainTileMap.set(key,mesh);terrainTiles.add(mesh);
+    }).finally(()=>terrainLoading.delete(key));
+    jobs.push(job);
+  }
+  terrainTileMap.forEach((mesh,key)=>{
+    const dx=Math.abs(mesh.userData.tx-cx),dy=Math.abs(mesh.userData.ty-cy);
+    if(dx>radius+1||dy>radius+1){terrainTiles.remove(mesh);disposeObject(mesh);terrainTileMap.delete(key);}
+  });
+  if(initial)await Promise.allSettled(jobs);
+}
+
+function buildClouds() {
+  clearGroup(cloudGroup);
+  if(!state.clouds)return;
+  const mat=new THREE.SpriteMaterial({color:0xffffff,transparent:true,opacity:.2,depthWrite:false});
+  for(let i=0;i<42;i++){
+    const s=new THREE.Sprite(mat.clone());
+    s.position.set((Math.random()-.5)*26000,1800+Math.random()*1800,(Math.random()-.5)*26000);
+    const sc=700+Math.random()*1500;s.scale.set(sc,sc*.25,1);cloudGroup.add(s);
+  }
+  mat.dispose();
+}
+
+const BUILDING_ZOOM = 14;
+const BUILDING_TILE_RADIUS = 1;
+const BUILDING_TILE_LIMIT = 900;
+const BUILDING_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+];
+const buildingTileMap = new Map();
+const buildingTileLoading = new Set();
+const buildingTileFailed = new Map();
+let buildingStreamGeneration = 0;
+
+function buildingTileBounds(tx, ty, z = BUILDING_ZOOM) {
+  const n = 2 ** z, wrappedX = ((tx % n) + n) % n;
+  const west = wrappedX / n * 360 - 180;
+  const east = (wrappedX + 1) / n * 360 - 180;
+  const north = THREE.MathUtils.radToDeg(Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / n))));
+  const south = THREE.MathUtils.radToDeg(Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / n))));
+  return { south, west, north, east };
+}
+
+function clearBuildings() {
+  buildingStreamGeneration++;
+  buildingTileLoading.clear();
+  buildingTileFailed.clear();
+  buildingTileMap.forEach(group => { buildingsGroup.remove(group); disposeObject(group); });
+  buildingTileMap.clear();
+  state.buildingCenter = null;
+  state.buildingTileCenter = null;
+  state.buildingLoading = false;
+  state.buildingToastKey = null;
+}
+
+function makeBuildingMaterial(kind) {
+  const colors = { default: 0xbdb9b0, glass: 0x8faeba, brick: 0x9b7564, industrial: 0x777b80 };
+  return new THREE.MeshStandardMaterial({
+    color: colors[kind] || colors.default,
+    roughness: kind === 'glass' ? .42 : .9,
+    metalness: kind === 'glass' ? .1 : .01,
+  });
+}
+
+function buildingKind(tags, height) {
+  const material = String(tags['building:material'] || '').toLowerCase();
+  const type = String(tags.building || '').toLowerCase();
+  if (material.includes('glass') || height > 80 || ['office', 'commercial', 'retail'].includes(type)) return 'glass';
+  if (material.includes('brick') || ['house', 'detached', 'semidetached_house', 'terrace'].includes(type)) return 'brick';
+  if (['industrial', 'warehouse', 'factory'].includes(type)) return 'industrial';
+  return 'default';
+}
+
+function parseBuildingHeight(tags = {}, area = 0, seed = 0) {
+  const rawHeight = parseFloat(String(tags.height || '').replace(',', '.').replace(/[^0-9.]/g, ''));
+  if (Number.isFinite(rawHeight) && rawHeight > 1) return THREE.MathUtils.clamp(rawHeight, 2.5, 420);
+  const levels = parseFloat(String(tags['building:levels'] || '').replace(',', '.'));
+  if (Number.isFinite(levels) && levels > 0) return THREE.MathUtils.clamp(levels * 3.2, 3, 420);
+  const footprintSignal = Math.sqrt(Math.max(25, area));
+  const variation = 0.82 + ((Math.abs(seed * 1103515245 + 12345) % 1000) / 1000) * .36;
+  return THREE.MathUtils.clamp((5.5 + footprintSignal * .055) * variation, 4.5, 28);
+}
+
+function makeBuildingTile(tx, ty, elements) {
+  const groups = { default: [], glass: [], brick: [], industrial: [] };
+  let accepted = 0;
+  for (const way of elements) {
+    if (accepted >= BUILDING_TILE_LIMIT || !way.geometry || way.geometry.length < 4) continue;
+    try {
+      const points = way.geometry.map(point => localFromGeo(point.lat, point.lon));
+      let area = 0, cx = 0, cz = 0;
+      for (let i = 0; i < points.length; i++) {
+        const a = points[i], b = points[(i + 1) % points.length];
+        area += a.x * b.z - b.x * a.z;
+        cx += a.x; cz += a.z;
+      }
+      area = Math.abs(area) * .5;
+      cx /= points.length; cz /= points.length;
+      if (!Number.isFinite(area) || area < 12) continue;
+      const shape = new THREE.Shape();
+      shape.moveTo(points[0].x, -points[0].z);
+      for (let i = 1; i < points.length; i++) shape.lineTo(points[i].x, -points[i].z);
+      shape.closePath();
+      const tags = way.tags || {};
+      const height = parseBuildingHeight(tags, area, Number(way.id) || accepted);
+      const geometry = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false, steps: 1 });
+      geometry.rotateX(-Math.PI / 2);
+      geometry.translate(0, terrainHeightAt(cx, cz) + .25, 0);
+      groups[buildingKind(tags, height)].push(geometry);
+      accepted++;
+    } catch (error) {
+      // A malformed OSM polygon should not prevent the rest of the tile rendering.
+    }
+  }
+  const group = new THREE.Group();
+  group.name = `osm-buildings-${BUILDING_ZOOM}-${tx}-${ty}`;
+  for (const [kind, geometries] of Object.entries(groups)) {
+    if (!geometries.length) continue;
+    const merged = new THREE.BufferGeometry();
+    let vertexOffset = 0;
+    const positionArrays = [];
+    const normalArrays = [];
+    const uvArrays = [];
+    const indexArrays = [];
+    for (const geometry of geometries) {
+      const position = geometry.getAttribute('position');
+      const normal = geometry.getAttribute('normal');
+      const uv = geometry.getAttribute('uv');
+      positionArrays.push(position.array); if (normal) normalArrays.push(normal.array); if (uv) uvArrays.push(uv.array);
+      const index = geometry.getIndex();
+      if (index) indexArrays.push(Array.from(index.array, value => value + vertexOffset));
+      else indexArrays.push(Array.from({ length: position.count }, (_, i) => i + vertexOffset));
+      vertexOffset += position.count;
+      geometry.dispose();
+    }
+    merged.setAttribute('position', new THREE.Float32BufferAttribute(Float32Array.from(positionArrays.flatMap(array => Array.from(array))), 3));
+    if (normalArrays.length === geometries.length) merged.setAttribute('normal', new THREE.Float32BufferAttribute(Float32Array.from(normalArrays.flatMap(array => Array.from(array))), 3));
+    if (uvArrays.length === geometries.length) merged.setAttribute('uv', new THREE.Float32BufferAttribute(Float32Array.from(uvArrays.flatMap(array => Array.from(array))), 2));
+    merged.setIndex(indexArrays.flat());
+    if (!normalArrays.length) merged.computeVertexNormals();
+    merged.computeBoundingSphere();
+    const mesh = new THREE.Mesh(merged, makeBuildingMaterial(kind));
+    mesh.userData.buildingCount = geometries.length;
+    group.add(mesh);
+  }
+  group.userData.buildingCount = accepted;
+  return group;
+}
+
+async function fetchBuildingTile(tx, ty, generation) {
+  const key = `${BUILDING_ZOOM}/${tx}/${ty}`;
+  const bounds = buildingTileBounds(tx, ty);
+  const query = `[out:json][timeout:20];way["building"](${bounds.south},${bounds.west},${bounds.north},${bounds.east});out geom;`;
+  let lastError = null;
+  for (const endpoint of BUILDING_ENDPOINTS) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 23000);
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8', Accept: 'application/json' },
+        body: `data=${encodeURIComponent(query)}`,
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!response.ok) throw new Error(`Overpass ${response.status}`);
+      const json = await response.json();
+      if (generation !== buildingStreamGeneration || !state.buildings) return;
+      const tile = makeBuildingTile(tx, ty, json.elements || []);
+      buildingTileMap.set(key, tile); buildingsGroup.add(tile);
+      return tile;
+    } catch (error) { lastError = error; }
+  }
+  console.warn(`Building tile ${key} unavailable`, lastError);
+  return null;
+}
+
+async function loadBuildings(lat, lon) {
+  if (!state.buildings || state.mode !== 'earth') return;
+  const center = tileXY(lat, lon, BUILDING_ZOOM);
+  const cx = Math.floor(center.x), cy = Math.floor(center.y);
+  state.buildingTileCenter = `${BUILDING_ZOOM}/${cx}/${cy}`;
+  const jobs = [];
+  for (let dy = -BUILDING_TILE_RADIUS; dy <= BUILDING_TILE_RADIUS; dy++) {
+    for (let dx = -BUILDING_TILE_RADIUS; dx <= BUILDING_TILE_RADIUS; dx++) {
+      const tx = cx + dx, ty = cy + dy;
+      const key = `${BUILDING_ZOOM}/${tx}/${ty}`;
+      if (buildingTileMap.has(key) || buildingTileLoading.has(key)) continue;
+      const failedAt = buildingTileFailed.get(key);
+      if (failedAt && Date.now() - failedAt < 60_000) continue;
+      buildingTileLoading.add(key);
+      const generation = buildingStreamGeneration;
+      jobs.push(fetchBuildingTile(tx, ty, generation).then(tile => {
+        if (!tile) buildingTileFailed.set(key, Date.now());
+        else buildingTileFailed.delete(key);
+        return tile;
+      }).finally(() => buildingTileLoading.delete(key)));
+    }
+  }
+  buildingTileMap.forEach((group, key) => {
+    const [, rawX, rawY] = key.split('/').map(Number);
+    const dx = Math.abs(rawX - cx), dy = Math.abs(rawY - cy);
+    if (dx > BUILDING_TILE_RADIUS + 1 || dy > BUILDING_TILE_RADIUS + 1) {
+      buildingsGroup.remove(group); disposeObject(group); buildingTileMap.delete(key);
+    }
+  });
+  state.buildingCenter = { lat, lon };
+  state.buildingLoading = true;
+  await Promise.allSettled(jobs);
+  state.buildingLoading = buildingTileLoading.size > 0;
+  const visibleCount = [...buildingTileMap.values()].reduce((total, group) => total + (group.userData.buildingCount || 0), 0);
+  if (visibleCount && state.buildingToastKey !== state.buildingTileCenter) {
+    state.buildingToastKey = state.buildingTileCenter;
+    toast(`${visibleCount.toLocaleString()} mapped 3D buildings loaded`);
+  } else if (!visibleCount && jobs.length) {
+    toast('Building data unavailable here; retrying nearby tiles');
+  }
+}
+
+
+async function rebaseEarth(){
+  if(state.rebasing||state.mode!=='earth'||Math.hypot(flightPos.x,flightPos.z)<50000)return;
+  state.rebasing=true;
+  const live=geoFromFlight(),agl=Math.max(25,flightPos.y-terrainHeightAt(flightPos.x,flightPos.z));
+  state.earthOrigin={...live};state.currentGeo={...live};state.location.lat=live.lat;state.location.lon=live.lon;
+  state.earthOriginTile=tileXY(live.lat,live.lon,state.terrainZoom);
+  state.earthTileMeters=40075016.686*Math.cos(live.lat*Math.PI/180)/(2**state.terrainZoom);
+  flightPos.x=0;flightPos.z=0;clearTerrain();clearBuildings();
+  await refreshTerrainTiles(true);state.terrainBase=terrainHeightAt(0,0);flightPos.y=Math.max(state.terrainBase+agl,35);buildClouds();loadBuildings(live.lat,live.lon);state.rebasing=false;
+}
+
+async function loadTerrain(lat,lon,name='EARTH') {
+  lat=THREE.MathUtils.clamp(lat,-85.04,85.04);lon=((lon+540)%360)-180;
+  state.mode='earth';state.location={lat,lon,name:name.toUpperCase()};state.currentGeo={lat,lon};state.earthOrigin={lat,lon};state.spaceTarget='Earth';
+  solarGroup.visible=false;earthGroup.visible=true;scene.fog.density=0.000018;if(skyMaterial)skyMaterial.uniforms.fade.value=1;
+  $('modeText').textContent='ATMOSPHERE';$('locationText').textContent=state.location.name;$('spaceBtn').textContent='ORBIT';
+  setLoading(`STREAMING ${state.location.name}`,true);clearTerrain();clearBuildings();
+  state.earthOriginTile=tileXY(lat,lon,state.terrainZoom);
+  state.earthTileMeters=40075016.686*Math.cos(lat*Math.PI/180)/(2**state.terrainZoom);
+  flightPos.set(0,0,0);
+  await refreshTerrainTiles(true);
+  state.terrainBase=terrainHeightAt(0,0);
+  flightPos.set(0,Math.max(state.terrainBase+900,1200),0);
+  state.altitude=flightPos.y;state.pitch=0;state.roll=0;state.yawAngle=0;state.heading=0;state.terrainClock=0;state.buildingCenter=null;
+  buildClouds();loadBuildings(lat,lon);setLoading('',false);toast(`${state.location.name} terrain ready`);
+}
+
+let skyMaterial=null;
+function atmosphericSky() {
+  const skyGeo=new THREE.SphereGeometry(450000,32,16);
+  skyMaterial=new THREE.ShaderMaterial({side:THREE.BackSide,depthWrite:false,transparent:true,uniforms:{top:{value:new THREE.Color(0x2a75b8)},bottom:{value:new THREE.Color(0xb8d6e4)},fade:{value:1}},vertexShader:`varying vec3 v;void main(){v=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,fragmentShader:`uniform vec3 top;uniform vec3 bottom;uniform float fade;varying vec3 v;void main(){float h=normalize(v).y*.5+.5;vec3 c=mix(bottom,top,smoothstep(.05,.72,h));gl_FragColor=vec4(c,fade);}`});
+  const sky=new THREE.Mesh(skyGeo,skyMaterial);sky.userData.earthSky=true;earthGroup.add(sky);
+}
+atmosphericSky();
+
+function enterSpace(target='Earth', instant=false) {
+  if (!state.running) beginGame('space');
+  state.mode='space'; state.spaceTarget=target;
+  earthGroup.visible=false; solarGroup.visible=true; scene.fog.density=0;
+  $('modeText').textContent='DEEP SPACE'; $('locationText').textContent=target.toUpperCase(); $('spaceBtn').textContent='EARTH';
+  const body=solarBodies.get(target)||solarBodies.get('Earth');
+  const wp = body.mesh.getWorldPosition(new THREE.Vector3());
+  flightPos.copy(wp).add(new THREE.Vector3(0,body.mesh.geometry.parameters.radius*0.6+600,body.mesh.geometry.parameters.radius*2.6+1100));
+  state.spaceVelocity = target==='Earth'?1.2:.65;
+  if(!instant){transitionFlash=1;toast(`
