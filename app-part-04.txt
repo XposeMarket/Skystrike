@@ -16,7 +16,7 @@ $('qualitySelect').addEventListener('change',e=>{state.quality=+e.target.value;a
 $('fovRange').addEventListener('input',e=>{camera.fov=+e.target.value;camera.updateProjectionMatrix()});
 $('terrainSelect').addEventListener('change',e=>{state.terrainRadius=+e.target.value;if(state.mode==='earth')loadTerrain(state.location.lat,state.location.lon,state.location.name)});
 $('cloudToggle').addEventListener('change',e=>{state.clouds=e.target.checked;buildClouds()});
-$('buildingToggle').addEventListener('change',e=>{state.buildings=e.target.checked;if(e.target.checked&&state.mode==='earth')loadBuildings(state.currentGeo.lat,state.currentGeo.lon);else{buildingGeneration++;state.buildingLoading=false;state.buildingCenter=null;clearGroup(buildingsGroup);}});
+$('buildingToggle').addEventListener('change',e=>{state.buildings=e.target.checked;if(e.target.checked&&state.mode==='earth')loadBuildings(state.currentGeo.lat,state.currentGeo.lon);else{clearBuildings();}});
 $('orbitToggle').addEventListener('change',e=>{state.orbitLines=e.target.checked;solarGroup.traverse(o=>{if(o.userData.orbitLine)o.visible=state.orbitLines})});
 $('resetBtn').addEventListener('click',()=>{panel.classList.remove('open');state.throttle=.35;state.speed=85;state.pitch=state.roll=state.yawAngle=0;state.mode==='earth'?loadTerrain(state.location.lat,state.location.lon,state.location.name):enterSpace(state.spaceTarget,true)});
 
@@ -45,11 +45,4 @@ document.addEventListener('contextmenu',e=>e.preventDefault());
   animate();
 })();
 
-// Production loader compatibility: Vercel's existing bootstrap loads chunks 00-04.
-// Pull the refinement chunk here so the live URL receives camera/cockpit/terrain updates
-// without requiring a new shell deployment.
-try {
-  const refinementResponse=await fetch('https://raw.githubusercontent.com/XposeMarket/Skystrike/flight-universe-pwa/app-part-05.txt?v=terrain-cockpit-v1',{cache:'no-store'});
-  if(!refinementResponse.ok)throw new Error(`Refinement ${refinementResponse.status}`);
-  eval(await refinementResponse.text());
-}catch(error){console.error('Flight Universe refinement patch failed',error);}
+// Building streaming is implemented in app-part-02.txt. The legacy remote app-part-05 override is intentionally disabled.

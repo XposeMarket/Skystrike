@@ -10,7 +10,7 @@ A landscape-first mobile flight simulator prototype that lets you fly over strea
 - Continuous moving Earth tile streamer instead of a fixed local patch.
 - Live latitude/longitude tracking and floating-origin rebasing for longer flights.
 - Terrain-height sampling for collision and true AGL readout.
-- Optional OpenStreetMap 3D building footprints with tagged heights where available.
+- Streamed OpenStreetMap 3D building tiles around the aircraft, with fallback Overpass endpoints, tagged heights, footprint-based height estimates, material classes, and batched per-tile geometry.
 - Place presets, direct `lat, lon` entry, and Nominatim place search.
 - HUD, chase/cockpit/orbit cameras, pitch/roll stick, rudder buttons, vertical throttle, and afterburner.
 - Three selectable real-source vehicle assets: Dassault Rafale B, NASA Global Hawk, and NASA Space Shuttle. A procedural emergency fallback only appears if a remote model host fails.

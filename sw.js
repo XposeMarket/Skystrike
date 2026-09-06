@@ -1,5 +1,5 @@
-const CORE_CACHE='flight-universe-core-v4';
-const ASSET_CACHE='flight-universe-assets-v4';
+const CORE_CACHE='flight-universe-core-v6';
+const ASSET_CACHE='flight-universe-assets-v5';
 const CORE=["./","./index.html","./styles.css","./bootstrap.js","./app-part-00.txt","./app-part-01.txt","./app-part-02.txt","./app-part-03.txt","./app-part-04.txt","./manifest.webmanifest","./icon.svg"];
 const CACHEABLE_EXTERNAL=new Set(['cdn.jsdelivr.net','raw.githubusercontent.com','assets.science.nasa.gov','threejs.org']);
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CORE_CACHE).then(cache=>cache.addAll(CORE)).then(()=>self.skipWaiting()));});

@@ -66,40 +66,249 @@ function buildClouds() {
   mat.dispose();
 }
 
-function geoDistanceMeters(a,b){const lat=(a.lat+b.lat)*.5*Math.PI/180,dx=(a.lon-b.lon)*111320*Math.cos(lat),dz=(a.lat-b.lat)*111320;return Math.hypot(dx,dz);}
+const BUILDING_ZOOM = 14;
+const BUILDING_TILE_RADIUS = 1;
+const BUILDING_TILE_LIMIT = 900;
+const BUILDING_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+];
+const buildingTileMap = new Map();
+const buildingTileLoading = new Set();
+const buildingTileFailed = new Map();
+let buildingStreamGeneration = 0;
 
-function parseBuildingHeight(tags={}){
-  const raw=parseFloat(String(tags.height||'').replace(/[^0-9.]/g,''));
-  if(Number.isFinite(raw)&&raw>1)return THREE.MathUtils.clamp(raw,2,420);
-  const levels=parseFloat(tags['building:levels']);
-  if(Number.isFinite(levels)&&levels>0)return THREE.MathUtils.clamp(levels*3.2,3,420);
-  return 9;
+function buildingTileBounds(tx, ty, z = BUILDING_ZOOM) {
+  const n = 2 ** z, wrappedX = ((tx % n) + n) % n;
+  const west = wrappedX / n * 360 - 180;
+  const east = (wrappedX + 1) / n * 360 - 180;
+  const north = THREE.MathUtils.radToDeg(Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / n))));
+  const south = THREE.MathUtils.radToDeg(Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / n))));
+  return { south, west, north, east };
 }
 
-async function loadBuildings(lat,lon){
-  if(!state.buildings||state.buildingLoading)return;
-  state.buildingLoading=true;const gen=++buildingGeneration;
-  const query=`[out:json][timeout:18];way["building"](around:1700,${lat},${lon});out geom;`;
-  try{
-    const r=await fetch('https://overpass-api.de/api/interpreter',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:`data=${encodeURIComponent(query)}`});
-    if(!r.ok)throw new Error(`Overpass ${r.status}`);const json=await r.json();if(gen!==buildingGeneration)return;
-    clearGroup(buildingsGroup);
-    const material=new THREE.MeshStandardMaterial({color:0xb7b2a7,roughness:.88,metalness:.02});
-    let made=0;
-    for(const way of json.elements||[]){
-      if(made>=700||!way.geometry||way.geometry.length<4)continue;
-      try{
-        const pts=way.geometry.map(g=>localFromGeo(g.lat,g.lon));
-        const shape=new THREE.Shape();shape.moveTo(pts[0].x,-pts[0].z);for(let i=1;i<pts.length;i++)shape.lineTo(pts[i].x,-pts[i].z);
-        const h=parseBuildingHeight(way.tags),geo=new THREE.ExtrudeGeometry(shape,{depth:h,bevelEnabled:false,steps:1});geo.rotateX(-Math.PI/2);
-        let cx=0,cz=0;pts.forEach(p=>{cx+=p.x;cz+=p.z});cx/=pts.length;cz/=pts.length;
-        const mesh=new THREE.Mesh(geo,material);mesh.position.y=terrainHeightAt(cx,cz)+.3;mesh.userData.sharedMaterial=true;buildingsGroup.add(mesh);made++;
-      }catch{}
+function clearBuildings() {
+  buildingStreamGeneration++;
+  buildingTileLoading.clear();
+  buildingTileFailed.clear();
+  buildingTileMap.forEach(group => { buildingsGroup.remove(group); disposeObject(group); });
+  buildingTileMap.clear();
+  state.buildingCenter = null;
+  state.buildingTileCenter = null;
+  state.buildingLoading = false;
+  state.buildingToastKey = null;
+}
+
+function makeBuildingMaterial(kind) {
+  const colors = { default: 0xbdb9b0, glass: 0x8faeba, brick: 0x9b7564, industrial: 0x777b80 };
+  return new THREE.MeshStandardMaterial({
+    color: colors[kind] || colors.default,
+    roughness: kind === 'glass' ? .42 : .9,
+    metalness: kind === 'glass' ? .1 : .01,
+  });
+}
+
+function buildingKind(tags, height) {
+  const material = String(tags['building:material'] || '').toLowerCase();
+  const type = String(tags.building || '').toLowerCase();
+  if (material.includes('glass') || height > 80 || ['office', 'commercial', 'retail'].includes(type)) return 'glass';
+  if (material.includes('brick') || ['house', 'detached', 'semidetached_house', 'terrace'].includes(type)) return 'brick';
+  if (['industrial', 'warehouse', 'factory'].includes(type)) return 'industrial';
+  return 'default';
+}
+
+function parseBuildingHeight(tags = {}, area = 0, seed = 0) {
+  const rawHeight = parseFloat(String(tags.height || '').replace(',', '.').replace(/[^0-9.]/g, ''));
+  if (Number.isFinite(rawHeight) && rawHeight > 1) return THREE.MathUtils.clamp(rawHeight, 2.5, 420);
+  const levels = parseFloat(String(tags['building:levels'] || '').replace(',', '.'));
+  if (Number.isFinite(levels) && levels > 0) return THREE.MathUtils.clamp(levels * 3.2, 3, 420);
+  const footprintSignal = Math.sqrt(Math.max(25, area));
+  const variation = 0.82 + ((Math.abs(seed * 1103515245 + 12345) % 1000) / 1000) * .36;
+  return THREE.MathUtils.clamp((5.5 + footprintSignal * .055) * variation, 4.5, 28);
+}
+
+function makeBuildingTile(tx, ty, elements) {
+  const groups = { default: [], glass: [], brick: [], industrial: [] };
+  let accepted = 0;
+  for (const way of elements) {
+    if (accepted >= BUILDING_TILE_LIMIT || !way.geometry || way.geometry.length < 4) continue;
+    try {
+      const points = way.geometry.map(point => localFromGeo(point.lat, point.lon));
+      let area = 0, cx = 0, cz = 0;
+      for (let i = 0; i < points.length; i++) {
+        const a = points[i], b = points[(i + 1) % points.length];
+        area += a.x * b.z - b.x * a.z;
+        cx += a.x; cz += a.z;
+      }
+      area = Math.abs(area) * .5;
+      cx /= points.length; cz /= points.length;
+      if (!Number.isFinite(area) || area < 12) continue;
+      const shape = new THREE.Shape();
+      shape.moveTo(points[0].x, -points[0].z);
+      for (let i = 1; i < points.length; i++) shape.lineTo(points[i].x, -points[i].z);
+      shape.closePath();
+      const tags = way.tags || {};
+      const height = parseBuildingHeight(tags, area, Number(way.id) || accepted);
+      const geometry = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false, steps: 1 });
+      geometry.rotateX(-Math.PI / 2);
+      geometry.translate(0, terrainHeightAt(cx, cz) + .25, 0);
+      groups[buildingKind(tags, height)].push(geometry);
+      accepted++;
+    } catch (error) {
+      // A malformed OSM polygon should not prevent the rest of the tile rendering.
     }
-    if(!made)material.dispose();state.buildingCenter={lat,lon};if(made)toast(`${made.toLocaleString()} mapped buildings loaded`);
-  }catch{state.buildingCenter={lat,lon};}
-  finally{state.buildingLoading=false;}
+  }
+  const group = new THREE.Group();
+  group.name = `osm-buildings-${BUILDING_ZOOM}-${tx}-${ty}`;
+  for (const [kind, geometries] of Object.entries(groups)) {
+    if (!geometries.length) continue;
+    const merged = new THREE.BufferGeometry();
+    let vertexOffset = 0;
+    const positionArrays = [];
+    const normalArrays = [];
+    const uvArrays = [];
+    const indexArrays = [];
+    for (const geometry of geometries) {
+      const position = geometry.getAttribute('position');
+      const normal = geometry.getAttribute('normal');
+      const uv = geometry.getAttribute('uv');
+      positionArrays.push(position.array); if (normal) normalArrays.push(normal.array); if (uv) uvArrays.push(uv.array);
+      const index = geometry.getIndex();
+      if (index) indexArrays.push(Array.from(index.array, value => value + vertexOffset));
+      else indexArrays.push(Array.from({ length: position.count }, (_, i) => i + vertexOffset));
+      vertexOffset += position.count;
+      geometry.dispose();
+    }
+    merged.setAttribute('position', new THREE.Float32BufferAttribute(Float32Array.from(positionArrays.flatMap(array => Array.from(array))), 3));
+    if (normalArrays.length === geometries.length) merged.setAttribute('normal', new THREE.Float32BufferAttribute(Float32Array.from(normalArrays.flatMap(array => Array.from(array))), 3));
+    if (uvArrays.length === geometries.length) merged.setAttribute('uv', new THREE.Float32BufferAttribute(Float32Array.from(uvArrays.flatMap(array => Array.from(array))), 2));
+    merged.setIndex(indexArrays.flat());
+    if (!normalArrays.length) merged.computeVertexNormals();
+    merged.computeBoundingSphere();
+    const mesh = new THREE.Mesh(merged, makeBuildingMaterial(kind));
+    mesh.userData.buildingCount = geometries.length;
+    group.add(mesh);
+  }
+  group.userData.buildingCount = accepted;
+  return group;
 }
+
+function parseOsmBuildingXml(xmlText) {
+  const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
+  if (doc.querySelector('parsererror')) throw new Error('OSM XML parse failed');
+  const nodes = new Map();
+  doc.querySelectorAll('node').forEach(node => {
+    const lat = Number(node.getAttribute('lat')), lon = Number(node.getAttribute('lon'));
+    if (Number.isFinite(lat) && Number.isFinite(lon)) nodes.set(node.getAttribute('id'), { lat, lon });
+  });
+  const elements = [];
+  doc.querySelectorAll('way').forEach(way => {
+    const tags = {};
+    way.querySelectorAll('tag').forEach(tag => tags[tag.getAttribute('k')] = tag.getAttribute('v') || '');
+    if (!tags.building) return;
+    const geometry = [];
+    way.querySelectorAll('nd').forEach(nd => {
+      const point = nodes.get(nd.getAttribute('ref'));
+      if (point) geometry.push(point);
+    });
+    if (geometry.length >= 4) elements.push({ id: way.getAttribute('id'), tags, geometry });
+  });
+  return elements;
+}
+
+async function fetchOsmBuildingTile(bounds) {
+  const url = `https://api.openstreetmap.org/api/0.6/map?bbox=${bounds.west},${bounds.south},${bounds.east},${bounds.north}`;
+  const response = await fetch(url, { headers: { Accept: 'application/xml' }, cache: 'no-store' });
+  if (!response.ok) throw new Error(`OSM map ${response.status}`);
+  return parseOsmBuildingXml(await response.text());
+}
+
+async function fetchOverpassBuildingTile(endpoint, query) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 9000);
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8', Accept: 'application/json' },
+      body: `data=${encodeURIComponent(query)}`,
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new Error(`Overpass ${response.status}`);
+    const json = await response.json();
+    return json.elements || [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchBuildingTile(tx, ty, generation) {
+  const key = `${BUILDING_ZOOM}/${tx}/${ty}`;
+  const bounds = buildingTileBounds(tx, ty);
+  const query = `[out:json][timeout:12];way["building"](${bounds.south},${bounds.west},${bounds.north},${bounds.east});out geom;`;
+  const sources = [
+    { name: 'OpenStreetMap API', load: () => fetchOsmBuildingTile(bounds) },
+    ...BUILDING_ENDPOINTS.map(endpoint => ({ name: endpoint, load: () => fetchOverpassBuildingTile(endpoint, query) })),
+  ];
+  let lastError = null;
+  for (const source of sources) {
+    try {
+      const elements = await source.load();
+      if (generation !== buildingStreamGeneration || !state.buildings) return;
+      const tile = makeBuildingTile(tx, ty, elements);
+      buildingTileMap.set(key, tile); buildingsGroup.add(tile);
+      return tile;
+    } catch (error) {
+      lastError = error;
+      console.warn(`Building source ${source.name} failed for ${key}`, error);
+    }
+  }
+  console.warn(`Building tile ${key} unavailable`, lastError);
+  return null;
+}
+async function loadBuildings(lat, lon) {
+  if (!state.buildings || state.mode !== 'earth') return;
+  const center = tileXY(lat, lon, BUILDING_ZOOM);
+  const cx = Math.floor(center.x), cy = Math.floor(center.y);
+  state.buildingTileCenter = `${BUILDING_ZOOM}/${cx}/${cy}`;
+  const jobs = [];
+  for (let dy = -BUILDING_TILE_RADIUS; dy <= BUILDING_TILE_RADIUS; dy++) {
+    for (let dx = -BUILDING_TILE_RADIUS; dx <= BUILDING_TILE_RADIUS; dx++) {
+      const tx = cx + dx, ty = cy + dy;
+      const key = `${BUILDING_ZOOM}/${tx}/${ty}`;
+      if (buildingTileMap.has(key) || buildingTileLoading.has(key)) continue;
+      const failedAt = buildingTileFailed.get(key);
+      if (failedAt && Date.now() - failedAt < 60_000) continue;
+      buildingTileLoading.add(key);
+      const generation = buildingStreamGeneration;
+      jobs.push(fetchBuildingTile(tx, ty, generation).then(tile => {
+        if (!tile) buildingTileFailed.set(key, Date.now());
+        else buildingTileFailed.delete(key);
+        return tile;
+      }).finally(() => buildingTileLoading.delete(key)));
+    }
+  }
+  buildingTileMap.forEach((group, key) => {
+    const [, rawX, rawY] = key.split('/').map(Number);
+    const dx = Math.abs(rawX - cx), dy = Math.abs(rawY - cy);
+    if (dx > BUILDING_TILE_RADIUS + 1 || dy > BUILDING_TILE_RADIUS + 1) {
+      buildingsGroup.remove(group); disposeObject(group); buildingTileMap.delete(key);
+    }
+  });
+  state.buildingCenter = { lat, lon };
+  state.buildingLoading = true;
+  await Promise.allSettled(jobs);
+  state.buildingLoading = buildingTileLoading.size > 0;
+  const visibleCount = [...buildingTileMap.values()].reduce((total, group) => total + (group.userData.buildingCount || 0), 0);
+  if (visibleCount && state.buildingToastKey !== state.buildingTileCenter) {
+    state.buildingToastKey = state.buildingTileCenter;
+    toast(`${visibleCount.toLocaleString()} mapped 3D buildings loaded`);
+  } else if (!visibleCount && jobs.length) {
+    toast('Building data unavailable here; retrying nearby tiles');
+  }
+}
+
 
 async function rebaseEarth(){
   if(state.rebasing||state.mode!=='earth'||Math.hypot(flightPos.x,flightPos.z)<50000)return;
@@ -108,7 +317,7 @@ async function rebaseEarth(){
   state.earthOrigin={...live};state.currentGeo={...live};state.location.lat=live.lat;state.location.lon=live.lon;
   state.earthOriginTile=tileXY(live.lat,live.lon,state.terrainZoom);
   state.earthTileMeters=40075016.686*Math.cos(live.lat*Math.PI/180)/(2**state.terrainZoom);
-  flightPos.x=0;flightPos.z=0;clearTerrain();buildingGeneration++;clearGroup(buildingsGroup);state.buildingCenter=null;
+  flightPos.x=0;flightPos.z=0;clearTerrain();clearBuildings();
   await refreshTerrainTiles(true);state.terrainBase=terrainHeightAt(0,0);flightPos.y=Math.max(state.terrainBase+agl,35);buildClouds();loadBuildings(live.lat,live.lon);state.rebasing=false;
 }
 
@@ -117,7 +326,7 @@ async function loadTerrain(lat,lon,name='EARTH') {
   state.mode='earth';state.location={lat,lon,name:name.toUpperCase()};state.currentGeo={lat,lon};state.earthOrigin={lat,lon};state.spaceTarget='Earth';
   solarGroup.visible=false;earthGroup.visible=true;scene.fog.density=0.000018;if(skyMaterial)skyMaterial.uniforms.fade.value=1;
   $('modeText').textContent='ATMOSPHERE';$('locationText').textContent=state.location.name;$('spaceBtn').textContent='ORBIT';
-  setLoading(`STREAMING ${state.location.name}`,true);clearTerrain();buildingGeneration++;clearGroup(buildingsGroup);
+  setLoading(`STREAMING ${state.location.name}`,true);clearTerrain();clearBuildings();
   state.earthOriginTile=tileXY(lat,lon,state.terrainZoom);
   state.earthTileMeters=40075016.686*Math.cos(lat*Math.PI/180)/(2**state.terrainZoom);
   flightPos.set(0,0,0);
