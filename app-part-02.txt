@@ -194,34 +194,79 @@ function makeBuildingTile(tx, ty, elements) {
   return group;
 }
 
+function parseOsmBuildingXml(xmlText) {
+  const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
+  if (doc.querySelector('parsererror')) throw new Error('OSM XML parse failed');
+  const nodes = new Map();
+  doc.querySelectorAll('node').forEach(node => {
+    const lat = Number(node.getAttribute('lat')), lon = Number(node.getAttribute('lon'));
+    if (Number.isFinite(lat) && Number.isFinite(lon)) nodes.set(node.getAttribute('id'), { lat, lon });
+  });
+  const elements = [];
+  doc.querySelectorAll('way').forEach(way => {
+    const tags = {};
+    way.querySelectorAll('tag').forEach(tag => tags[tag.getAttribute('k')] = tag.getAttribute('v') || '');
+    if (!tags.building) return;
+    const geometry = [];
+    way.querySelectorAll('nd').forEach(nd => {
+      const point = nodes.get(nd.getAttribute('ref'));
+      if (point) geometry.push(point);
+    });
+    if (geometry.length >= 4) elements.push({ id: way.getAttribute('id'), tags, geometry });
+  });
+  return elements;
+}
+
+async function fetchOsmBuildingTile(bounds) {
+  const url = `https://api.openstreetmap.org/api/0.6/map?bbox=${bounds.west},${bounds.south},${bounds.east},${bounds.north}`;
+  const response = await fetch(url, { headers: { Accept: 'application/xml' }, cache: 'no-store' });
+  if (!response.ok) throw new Error(`OSM map ${response.status}`);
+  return parseOsmBuildingXml(await response.text());
+}
+
+async function fetchOverpassBuildingTile(endpoint, query) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 9000);
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8', Accept: 'application/json' },
+      body: `data=${encodeURIComponent(query)}`,
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new Error(`Overpass ${response.status}`);
+    const json = await response.json();
+    return json.elements || [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function fetchBuildingTile(tx, ty, generation) {
   const key = `${BUILDING_ZOOM}/${tx}/${ty}`;
   const bounds = buildingTileBounds(tx, ty);
-  const query = `[out:json][timeout:20];way["building"](${bounds.south},${bounds.west},${bounds.north},${bounds.east});out geom;`;
+  const query = `[out:json][timeout:12];way["building"](${bounds.south},${bounds.west},${bounds.north},${bounds.east});out geom;`;
+  const sources = [
+    { name: 'OpenStreetMap API', load: () => fetchOsmBuildingTile(bounds) },
+    ...BUILDING_ENDPOINTS.map(endpoint => ({ name: endpoint, load: () => fetchOverpassBuildingTile(endpoint, query) })),
+  ];
   let lastError = null;
-  for (const endpoint of BUILDING_ENDPOINTS) {
+  for (const source of sources) {
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 23000);
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8', Accept: 'application/json' },
-        body: `data=${encodeURIComponent(query)}`,
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      if (!response.ok) throw new Error(`Overpass ${response.status}`);
-      const json = await response.json();
+      const elements = await source.load();
       if (generation !== buildingStreamGeneration || !state.buildings) return;
-      const tile = makeBuildingTile(tx, ty, json.elements || []);
+      const tile = makeBuildingTile(tx, ty, elements);
       buildingTileMap.set(key, tile); buildingsGroup.add(tile);
       return tile;
-    } catch (error) { lastError = error; }
+    } catch (error) {
+      lastError = error;
+      console.warn(`Building source ${source.name} failed for ${key}`, error);
+    }
   }
   console.warn(`Building tile ${key} unavailable`, lastError);
   return null;
 }
-
 async function loadBuildings(lat, lon) {
   if (!state.buildings || state.mode !== 'earth') return;
   const center = tileXY(lat, lon, BUILDING_ZOOM);

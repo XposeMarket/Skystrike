@@ -1,4 +1,4 @@
-const VERSION = 'buildings-stream-v1';
+const VERSION = 'buildings-stream-v2';
 const PARTS = [
   './app-part-00.txt',
   './app-part-01.txt',
