@@ -134,17 +134,33 @@ function imageData(url) {
   });
 }
 
-async function createTerrainTile(tx,ty,z,originTile,tileMeters) {
-  const seg=28;
+function terrainTileBounds(tx, ty, z) {
+  const n = 2 ** z, wrappedX = ((tx % n) + n) % n;
+  const west = wrappedX / n * 360 - 180;
+  const east = (wrappedX + 1) / n * 360 - 180;
+  const north = THREE.MathUtils.radToDeg(Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / n))));
+  const south = THREE.MathUtils.radToDeg(Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / n))));
+  return { south, west, north, east, centerLat: (south + north) * .5, centerLon: (west + east) * .5 };
+}
+
+async function createTerrainTile(tx,ty,z,originTile,tileMeters,detail=false) {
+  const seg=detail ? 56 : 28;
   const geo=new THREE.PlaneGeometry(tileMeters,tileMeters,seg,seg);
   const n=2**z;
   const serverX=((tx%n)+n)%n;
   const serverY=Math.max(0,Math.min(n-1,ty));
+  const bounds=terrainTileBounds(tx,ty,z);
   const sat=`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${serverY}/${serverX}`;
   const ez=Math.min(z,15), shift=Math.max(0,z-15);
   const elevation=`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${ez}/${serverX >> shift}/${serverY >> shift}.png`;
   const texture=await loadTexture(sat);
-  const mat=new THREE.MeshStandardMaterial({map:texture,color:texture?0xffffff:0x3a463b,roughness:1,metalness:0});
+  if(texture){
+    texture.colorSpace=THREE.SRGBColorSpace;
+    texture.anisotropy=Math.min(16,renderer.capabilities.getMaxAnisotropy());
+    texture.minFilter=THREE.LinearMipmapLinearFilter;
+    texture.magFilter=THREE.LinearFilter;
+  }
+  const mat=new THREE.MeshStandardMaterial({map:texture,color:texture?0xffffff:0x3a463b,roughness:.96,metalness:0,polygonOffset:detail,polygonOffsetFactor:detail?-1:0,polygonOffsetUnits:detail?-1:0});
   const heights=new Float32Array((seg+1)*(seg+1));
   let sum=0,count=0;
   try {
@@ -163,9 +179,9 @@ async function createTerrainTile(tx,ty,z,originTile,tileMeters) {
   } catch { /* flat fallback if elevation provider/CORS is unavailable */ }
   const mesh=new THREE.Mesh(geo,mat);
   mesh.rotation.x=-Math.PI/2;
-  mesh.position.x=(tx+.5-originTile.x)*tileMeters;
-  mesh.position.z=(ty+.5-originTile.y)*tileMeters;
-  mesh.userData={tx,ty,z,size:tileMeters,seg,heights,avgHeight:count?sum/count:0};
+  const center=localFromGeo(bounds.centerLat,bounds.centerLon);
+  mesh.position.x=center.x; mesh.position.z=center.z;
+  mesh.userData={tx,ty,z,size:tileMeters,seg,heights,avgHeight:count?sum/count:0,detail};
   return mesh;
 }
 

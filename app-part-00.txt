@@ -63,6 +63,7 @@ const state = {
   terrainZoom: 12,
   terrainClock: 0,
   buildings: true,
+  vegetation: true,
   buildingCenter: null,
   buildingLoading: false,
   earthOrigin: { lat: 39.3259, lon: -77.3469 },

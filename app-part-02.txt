@@ -35,21 +35,30 @@ async function refreshTerrainTiles(initial=false){
   if(state.mode!=='earth'||!state.earthOriginTile)return;
   const gen=terrainGeneration, z=state.terrainZoom, radius=state.terrainRadius;
   const live=geoFromFlight(); state.currentGeo=live;
-  const c=tileXY(live.lat,live.lon,z);c.x=unwrapTileX(c.x,state.earthOriginTile.x,z);
-  const cx=Math.floor(c.x),cy=Math.floor(c.y),desired=new Set(),jobs=[];
-  for(let dy=-radius;dy<=radius;dy++)for(let dx=-radius;dx<=radius;dx++){
-    const tx=cx+dx,ty=cy+dy,key=`${z}/${tx}/${ty}`;desired.add(key);
-    if(terrainTileMap.has(key)||terrainLoading.has(key))continue;
-    terrainLoading.add(key);
-    const job=createTerrainTile(tx,ty,z,state.earthOriginTile,state.earthTileMeters).then(mesh=>{
-      if(gen!==terrainGeneration){disposeObject(mesh);return;}
-      terrainTileMap.set(key,mesh);terrainTiles.add(mesh);
-    }).finally(()=>terrainLoading.delete(key));
-    jobs.push(job);
+  const jobs=[];
+  const schedules=[{z,radius,detail:false},{z:z+1,radius:0,detail:true}];
+  const centers=new Map();
+  for(const schedule of schedules){
+    const c=tileXY(live.lat,live.lon,schedule.z);
+    c.x=unwrapTileX(c.x,state.earthOriginTile.x * (2 ** (schedule.z-z)),schedule.z);
+    centers.set(schedule.z,{x:Math.floor(c.x),y:Math.floor(c.y)});
+    for(let dy=-schedule.radius;dy<=schedule.radius;dy++)for(let dx=-schedule.radius;dx<=schedule.radius;dx++){
+      const tx=Math.floor(c.x)+dx,ty=Math.floor(c.y)+dy,key=`${schedule.z}/${tx}/${ty}`;
+      if(terrainTileMap.has(key)||terrainLoading.has(key))continue;
+      terrainLoading.add(key);
+      const job=createTerrainTile(tx,ty,schedule.z,state.earthOriginTile,state.earthTileMeters/(2 ** (schedule.z-z)),schedule.detail).then(mesh=>{
+        if(gen!==terrainGeneration){disposeObject(mesh);return;}
+        terrainTileMap.set(key,mesh);terrainTiles.add(mesh);
+      }).finally(()=>terrainLoading.delete(key));
+      jobs.push(job);
+    }
   }
   terrainTileMap.forEach((mesh,key)=>{
-    const dx=Math.abs(mesh.userData.tx-cx),dy=Math.abs(mesh.userData.ty-cy);
-    if(dx>radius+1||dy>radius+1){terrainTiles.remove(mesh);disposeObject(mesh);terrainTileMap.delete(key);}
+    const [level,rawX,rawY]=key.split('/').map(Number),center=centers.get(level);
+    if(!center)return;
+    const dx=Math.abs(unwrapTileX(rawX,center.x,level)-center.x),dy=Math.abs(rawY-center.y);
+    const keepRadius=level===z?radius+1:1;
+    if(dx>keepRadius||dy>keepRadius){terrainTiles.remove(mesh);disposeObject(mesh);terrainTileMap.delete(key);}
   });
   if(initial)await Promise.allSettled(jobs);
 }
@@ -100,13 +109,42 @@ function clearBuildings() {
   state.buildingToastKey = null;
 }
 
+function makeFacadeTexture(kind) {
+  const palettes={default:['#a9a59b','#555b61'],glass:['#7eabb8','#d7f3ef'],brick:['#9b6652','#e8b38d'],industrial:['#6d7478','#c6d0cc']};
+  const [base,window]=palettes[kind]||palettes.default;
+  const canvas=document.createElement('canvas');canvas.width=256;canvas.height=256;
+  const ctx=canvas.getContext('2d');ctx.fillStyle=base;ctx.fillRect(0,0,256,256);
+  ctx.fillStyle='rgba(255,255,255,.13)';for(let y=0;y<256;y+=32)ctx.fillRect(0,y,256,3);
+  ctx.fillStyle=window;for(let y=8;y<256;y+=20)for(let x=8;x<256;x+=20){ctx.globalAlpha=.56+((x*13+y*7)%28)/100;ctx.fillRect(x,y,10,7);}ctx.globalAlpha=1;
+  if(kind==='brick'){ctx.strokeStyle='rgba(50,25,20,.22)';ctx.lineWidth=1;for(let y=0;y<256;y+=10)ctx.strokeRect(0,y,256,10);}
+  const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;texture.wrapS=texture.wrapT=THREE.RepeatWrapping;texture.repeat.set(2,3);texture.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());return texture;
+}
 function makeBuildingMaterial(kind) {
-  const colors = { default: 0xbdb9b0, glass: 0x8faeba, brick: 0x9b7564, industrial: 0x777b80 };
+  const colors = { default: 0xffffff, glass: 0xffffff, brick: 0xffffff, industrial: 0xffffff };
   return new THREE.MeshStandardMaterial({
-    color: colors[kind] || colors.default,
-    roughness: kind === 'glass' ? .42 : .9,
-    metalness: kind === 'glass' ? .1 : .01,
+    map:makeFacadeTexture(kind),
+    color:colors[kind]||colors.default,
+    roughness:kind==='glass'?.38:.84,
+    metalness:kind==='glass'?.12:.01,
   });
+}
+function seededRandom(seed){const x=Math.sin(seed*12.9898)*43758.5453;return x-Math.floor(x);}
+function makeVegetationTile(tx,ty,buildingCount){
+  const group=new THREE.Group();group.name=`procedural-trees-${BUILDING_ZOOM}-${tx}-${ty}`;
+  if(!state.vegetation)return group;
+  const count=buildingCount>450?8:buildingCount>180?18:42;
+  const trunkGeo=new THREE.CylinderGeometry(.22,.42,4.2,5),crownGeo=new THREE.ConeGeometry(2.8,7.5,6);
+  const trunkMat=new THREE.MeshStandardMaterial({color:0x604633,roughness:1});
+  const crownMat=new THREE.MeshStandardMaterial({color:0x3d6b42,roughness:1});
+  const trunks=new THREE.InstancedMesh(trunkGeo,trunkMat,count),crowns=new THREE.InstancedMesh(crownGeo,crownMat,count);
+  const dummy=new THREE.Object3D(),bounds=buildingTileBounds(tx,ty),centerLat=(bounds.south+bounds.north)*.5,centerLon=(bounds.west+bounds.east)*.5;
+  for(let i=0;i<count;i++){
+    const r1=seededRandom((tx+17)*97+(ty+31)*53+i*7),r2=seededRandom((tx-11)*43+(ty+7)*89+i*11);
+    const lat=bounds.south+(bounds.north-bounds.south)*r1,lon=centerLon+(bounds.east-bounds.west)*(r2-.5),p=localFromGeo(lat,lon),h=terrainHeightAt(p.x,p.z),scale=.72+seededRandom(i+tx*3+ty*5)*.7;\n    if(!Number.isFinite(h))continue;
+    dummy.position.set(p.x,h+2.1*scale,p.z);dummy.scale.setScalar(scale);dummy.updateMatrix();trunks.setMatrixAt(i,dummy.matrix);
+    dummy.position.set(p.x,h+6.7*scale,p.z);dummy.updateMatrix();crowns.setMatrixAt(i,dummy.matrix);
+  }
+  trunks.instanceMatrix.needsUpdate=true;crowns.instanceMatrix.needsUpdate=true;group.add(trunks,crowns);group.userData.procedural=true;return group;
 }
 
 function buildingKind(tags, height) {
@@ -191,6 +229,7 @@ function makeBuildingTile(tx, ty, elements) {
     group.add(mesh);
   }
   group.userData.buildingCount = accepted;
+  group.add(makeVegetationTile(tx,ty,accepted));
   return group;
 }
 
