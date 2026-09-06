@@ -17,6 +17,7 @@ $('fovRange').addEventListener('input',e=>{camera.fov=+e.target.value;camera.upd
 $('terrainSelect').addEventListener('change',e=>{state.terrainRadius=+e.target.value;if(state.mode==='earth')loadTerrain(state.location.lat,state.location.lon,state.location.name)});
 $('cloudToggle').addEventListener('change',e=>{state.clouds=e.target.checked;buildClouds()});
 $('buildingToggle').addEventListener('change',e=>{state.buildings=e.target.checked;if(e.target.checked&&state.mode==='earth')loadBuildings(state.currentGeo.lat,state.currentGeo.lon);else{clearBuildings();}});
+$('vegetationToggle').addEventListener('change',e=>{state.vegetation=e.target.checked;if(state.mode==='earth')loadTerrain(state.location.lat,state.location.lon,state.location.name)});
 $('orbitToggle').addEventListener('change',e=>{state.orbitLines=e.target.checked;solarGroup.traverse(o=>{if(o.userData.orbitLine)o.visible=state.orbitLines})});
 $('resetBtn').addEventListener('click',()=>{panel.classList.remove('open');state.throttle=.35;state.speed=85;state.pitch=state.roll=state.yawAngle=0;state.mode==='earth'?loadTerrain(state.location.lat,state.location.lon,state.location.name):enterSpace(state.spaceTarget,true)});
 
