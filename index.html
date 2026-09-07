@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -28,14 +28,14 @@
 
     <section id="startScreen" class="start-screen">
       <div class="brand-mark">FU</div>
-      <div class="eyebrow">EARTH → ORBIT → SOLAR SYSTEM</div>
+      <div class="eyebrow">EARTH â†’ ORBIT â†’ SOLAR SYSTEM</div>
       <h1>FLIGHT<br/>UNIVERSE</h1>
       <p>Atmospheric flight over real-world imagery and terrain. Climb into orbit, cross the solar system, and drop back into places on Earth.</p>
       <div class="start-actions">
         <button id="startBtn" class="primary">START FLIGHT</button>
         <button id="quickSpaceBtn" class="secondary">START IN ORBIT</button>
       </div>
-      <div class="start-foot">Best in landscape · Headphones recommended · PWA installable</div>
+      <div class="start-foot">Best in landscape Â· Headphones recommended Â· PWA installable</div>
     </section>
 
     <div id="hud" class="hud hidden">
@@ -43,9 +43,21 @@
         <div class="status-pill"><span class="status-dot"></span><span id="modeText">ATMOSPHERE</span></div>
         <div class="hud-center">
           <div class="location" id="locationText">URBANA, MD</div>
-          <div class="heading"><span id="headingText">000</span><small>°</small></div>
+          <div class="heading"><span id="headingText">000</span><small>Â°</small></div>
         </div>
-        <button id="menuBtn" class="icon-btn" aria-label="Menu">☰</button>
+        <button id="menuBtn" class="icon-btn" aria-label="Menu">â˜°</button>
+      </div>
+
+      <div id="navOverlay" class="nav-overlay">
+        <div class="nav-map-shell">
+          <canvas id="navMap" width="260" height="260" aria-label="Flight minimap"></canvas>
+          <div class="nav-map-label">HEADING UP</div>
+        </div>
+        <div class="nav-readout"><span id="navTargetText">NO DESTINATION</span><b id="navDistanceText">--</b></div>
+      </div>
+      <div id="guidanceCue" class="guidance-cue hidden" aria-live="polite">
+        <span class="guidance-arrow" id="guidanceArrow">?</span>
+        <span><b id="guidanceText">SET A DESTINATION</b><small id="guidanceSubtext">Search Earth to begin navigation</small></span>
       </div>
 
       <div class="instrument left-instrument">
@@ -59,7 +71,7 @@
 
       <div class="reticle"><i></i><b></b><i></i></div>
       <div class="horizon" id="horizon"><span></span><span></span><span></span></div>
-      <div class="telemetry" id="telemetry">THR <b id="thrText">35</b>% · AGL <b id="aglText">0</b> FT · <b id="fpsText">60</b> FPS</div>
+      <div class="telemetry" id="telemetry">THR <b id="thrText">35</b>% Â· AGL <b id="aglText">0</b> FT Â· <b id="fpsText">60</b> FPS</div>
 
       <div class="mobile-controls">
         <div class="stick-zone" id="stickZone">
@@ -68,9 +80,9 @@
         </div>
 
         <div class="yaw-controls">
-          <button data-yaw="-1">RUD ◀</button>
+          <button data-yaw="-1">RUD â—€</button>
           <button id="spaceBtn" class="space-control">ORBIT</button>
-          <button data-yaw="1">RUD ▶</button>
+          <button data-yaw="1">RUD â–¶</button>
         </div>
 
         <div class="action-stack">
@@ -88,7 +100,7 @@
 
     <aside id="panel" class="panel">
       <div class="panel-handle"></div>
-      <div class="panel-head"><div><small>FLIGHT COMPUTER</small><h2 id="panelTitle">World</h2></div><button id="closePanel" class="icon-btn">×</button></div>
+      <div class="panel-head"><div><small>FLIGHT COMPUTER</small><h2 id="panelTitle">World</h2></div><button id="closePanel" class="icon-btn">Ã—</button></div>
       <div class="tabs">
         <button class="tab active" data-tab="aircraft">AIRCRAFT</button>
         <button class="tab" data-tab="places">PLACES</button>
@@ -99,7 +111,7 @@
         <div class="cards" id="aircraftCards"></div>
       </div>
       <div class="tab-content" id="tab-places">
-        <div class="search-row"><input id="placeSearch" placeholder="City, landmark, or lat, lon"/><button id="searchPlaceBtn">GO</button></div>
+        <div class="search-row"><input id="placeSearch" placeholder="Search a city or landmark"/><button id="searchPlaceBtn">SET</button></div><div id="destinationCard" class="destination-card hidden"><span>DESTINATION</span><b id="destinationName">--</b><button id="clearDestinationBtn" class="clear-destination">CLEAR</button></div>
         <div class="subhead">QUICK LOCATIONS</div>
         <div class="cards compact" id="placeCards"></div>
         <div class="source-note">Earth mode streams Esri World Imagery, AWS Terrarium elevation, and OpenStreetMap building data at runtime.</div>
@@ -110,7 +122,7 @@
       <div class="tab-content" id="tab-settings">
         <label class="setting"><span>Graphics quality<small>Dynamic pixel density</small></span><select id="qualitySelect"><option value="0.75">Battery</option><option value="1" selected>Balanced</option><option value="1.35">Ultra</option></select></label>
         <label class="setting"><span>Camera FOV<small>Degrees</small></span><input id="fovRange" type="range" min="55" max="95" value="72"/></label>
-        <label class="setting"><span>Terrain detail<small>Tile grid</small></span><select id="terrainSelect"><option value="1">3×3</option><option value="2">5×5</option></select></label>
+        <label class="setting"><span>Terrain detail<small>Tile grid</small></span><select id="terrainSelect"><option value="1">3Ã—3</option><option value="2">5Ã—5</option></select></label>
         <label class="setting toggle"><span>Cloud layer<small>Atmospheric particles</small></span><input id="cloudToggle" type="checkbox" checked/></label>
         <label class="setting toggle"><span>Mapped 3D buildings<small>OpenStreetMap footprints + procedural fa?ades</small></span><input id="buildingToggle" type="checkbox" checked/></label>
         <label class="setting toggle"><span>Tree cover<small>Instanced terrain vegetation</small></span><input id="vegetationToggle" type="checkbox" checked/></label>
@@ -120,9 +132,9 @@
       </div>
     </aside>
 
-    <div class="attribution">Imagery © Esri · Elevation © Mapzen/AWS · Buildings © OpenStreetMap contributors</div>
+    <div class="attribution">Imagery Â© Esri Â· Elevation Â© Mapzen/AWS Â· Buildings Â© OpenStreetMap contributors</div>
     <div id="toast" class="toast"></div>
-    <div id="portraitBlock" class="portrait-block"><div>↻</div><b>Rotate your phone</b><span>Flight Universe is designed for landscape controls.</span></div>
+    <div id="portraitBlock" class="portrait-block"><div>â†»</div><b>Rotate your phone</b><span>Flight Universe is designed for landscape controls.</span></div>
   </div>
   <script type="module" src="./bootstrap.js"></script>
 </body>

@@ -122,10 +122,8 @@ function makeFacadeTexture(kind) {
 function makeBuildingMaterial(kind) {
   const colors = { default: 0xffffff, glass: 0xffffff, brick: 0xffffff, industrial: 0xffffff };
   return new THREE.MeshStandardMaterial({
-    map:makeFacadeTexture(kind),
-    color:colors[kind]||colors.default,
-    roughness:kind==='glass'?.38:.84,
-    metalness:kind==='glass'?.12:.01,
+    map:makeFacadeTexture(kind),color:0xffffff,roughness:kind==='glass'?.38:.84,metalness:kind==='glass'?.12:.01,
+    side:THREE.DoubleSide,transparent:false,opacity:1,depthTest:true,depthWrite:true,flatShading:false,
   });
 }
 function seededRandom(seed){const x=Math.sin(seed*12.9898)*43758.5453;return x-Math.floor(x);}
@@ -140,7 +138,8 @@ function makeVegetationTile(tx,ty,buildingCount){
   const dummy=new THREE.Object3D(),bounds=buildingTileBounds(tx,ty),centerLat=(bounds.south+bounds.north)*.5,centerLon=(bounds.west+bounds.east)*.5;
   for(let i=0;i<count;i++){
     const r1=seededRandom((tx+17)*97+(ty+31)*53+i*7),r2=seededRandom((tx-11)*43+(ty+7)*89+i*11);
-    const lat=bounds.south+(bounds.north-bounds.south)*r1,lon=centerLon+(bounds.east-bounds.west)*(r2-.5),p=localFromGeo(lat,lon),h=terrainHeightAt(p.x,p.z),scale=.72+seededRandom(i+tx*3+ty*5)*.7;\n    if(!Number.isFinite(h))continue;
+    const lat=bounds.south+(bounds.north-bounds.south)*r1,lon=centerLon+(bounds.east-bounds.west)*(r2-.5),p=localFromGeo(lat,lon),h=terrainHeightAt(p.x,p.z),scale=.72+seededRandom(i+tx*3+ty*5)*.7;
+    if(!Number.isFinite(h))continue;
     dummy.position.set(p.x,h+2.1*scale,p.z);dummy.scale.setScalar(scale);dummy.updateMatrix();trunks.setMatrixAt(i,dummy.matrix);
     dummy.position.set(p.x,h+6.7*scale,p.z);dummy.updateMatrix();crowns.setMatrixAt(i,dummy.matrix);
   }
@@ -166,8 +165,27 @@ function parseBuildingHeight(tags = {}, area = 0, seed = 0) {
   return THREE.MathUtils.clamp((5.5 + footprintSignal * .055) * variation, 4.5, 28);
 }
 
+function pointInBuildingPolygon(x,z,polygon){
+  let inside=false;
+  for(let i=0,j=polygon.length-1;i<polygon.length;j=i++){
+    const xi=polygon[i].x,zi=polygon[i].z,xj=polygon[j].x,zj=polygon[j].z;
+    const intersects=((zi>z)!==(zj>z))&&(x<(xj-xi)*(z-zi)/(zj-zi)+xi);
+    if(intersects)inside=!inside;
+  }
+  return inside;
+}
+function buildingCollisionAt(x,z,y){
+  for(const group of buildingTileMap.values()){
+    for(const collider of group.userData.colliders||[]){
+      if(y<collider.base-4||y>collider.top+10||x<collider.minX-3||x>collider.maxX+3||z<collider.minZ-3||z>collider.maxZ+3)continue;
+      if(pointInBuildingPolygon(x,z,collider.polygon))return collider;
+    }
+  }
+  return null;
+}
 function makeBuildingTile(tx, ty, elements) {
   const groups = { default: [], glass: [], brick: [], industrial: [] };
+  const colliders = [];
   let accepted = 0;
   for (const way of elements) {
     if (accepted >= BUILDING_TILE_LIMIT || !way.geometry || way.geometry.length < 4) continue;
@@ -192,6 +210,8 @@ function makeBuildingTile(tx, ty, elements) {
       geometry.rotateX(-Math.PI / 2);
       geometry.translate(0, terrainHeightAt(cx, cz) + .25, 0);
       groups[buildingKind(tags, height)].push(geometry);
+      const minX=Math.min(...points.map(p=>p.x)),maxX=Math.max(...points.map(p=>p.x)),minZ=Math.min(...points.map(p=>p.z)),maxZ=Math.max(...points.map(p=>p.z));
+      colliders.push({polygon:points.map(p=>({x:p.x,z:p.z})),minX,maxX,minZ,maxZ,base:terrainHeightAt(cx,cz),top:terrainHeightAt(cx,cz)+height});
       accepted++;
     } catch (error) {
       // A malformed OSM polygon should not prevent the rest of the tile rendering.
@@ -229,6 +249,7 @@ function makeBuildingTile(tx, ty, elements) {
     group.add(mesh);
   }
   group.userData.buildingCount = accepted;
+  group.userData.colliders = colliders;
   group.add(makeVegetationTile(tx,ty,accepted));
   return group;
 }

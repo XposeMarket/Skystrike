@@ -1,4 +1,4 @@
- document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t===tab));
+﻿ document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t===tab));
   document.querySelectorAll('.tab-content').forEach(c=>c.classList.toggle('active',c.id===`tab-${tab.dataset.tab}`));
   $('panelTitle').textContent={aircraft:'Hangar',places:'Earth',solar:'Solar System',settings:'System'}[tab.dataset.tab];
 }));
@@ -24,16 +24,18 @@ $('resetBtn').addEventListener('click',()=>{panel.classList.remove('open');state
 $('searchPlaceBtn').addEventListener('click',async()=>{
   const q=$('placeSearch').value.trim();if(!q)return;
   const m=q.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
-  if(m){panel.classList.remove('open');return loadTerrain(+m[1],+m[2],`${m[1]}, ${m[2]}`)}
-  try{toast('Searching Earth…');const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);const j=await r.json();if(!j.length)throw new Error();panel.classList.remove('open');loadTerrain(+j[0].lat,+j[0].lon,j[0].display_name.split(',').slice(0,2).join(','));}catch{toast('Place search unavailable · use lat, lon')}
+  if(m){panel.classList.remove('open');return setDestination({lat:+m[1],lon:+m[2],name:`${m[1]}, ${m[2]}`});}
+  try{toast('SEARCHING EARTH ???');const res=await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=1&q=${encodeURIComponent(q)}`);const results=await res.json();if(!results.length)throw new Error();const place=results[0];panel.classList.remove('open');setDestination({lat:+place.lat,lon:+place.lon,name:place.display_name});}catch{toast('Place search unavailable ? try lat, lon')}
 });
 $('placeSearch').addEventListener('keydown',e=>{if(e.key==='Enter')$('searchPlaceBtn').click()});
+$('clearDestinationBtn').addEventListener('click',clearDestination);
+resizeNavMap();updateNavigationUI();
 
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstallPrompt=e;$('installBtn').classList.remove('hidden')});
 $('installBtn').addEventListener('click',async()=>{if(!deferredInstallPrompt)return;deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;$('installBtn').classList.add('hidden')});
 if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
 
-window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);applyPixelRatio()});
+window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);applyPixelRatio();resizeNavMap();updateNavigationUI()});
 document.addEventListener('contextmenu',e=>e.preventDefault());
 
 (async function init(){
