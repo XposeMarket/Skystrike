@@ -96,7 +96,7 @@ function upgradeBuildings(source) {
     '  const [base,glass]=palettes[kind]||palettes.default;',
     "  const canvas=document.createElement('canvas');canvas.width=512;canvas.height=512;",
     "  const ctx=canvas.getContext('2d');ctx.fillStyle=base;ctx.fillRect(0,0,512,512);",
-    "  const grain=ctx.createImageData(512,512);for(let i=0;i<grain.data.length;i+=4){const n=18+Math.random()*22;grain.data[i]=n;grain.data[i+1]=n;grain.data[i+2]=n;grain.data[i+3]=kind==='glass'?10:18;}ctx.putImageData(grain,0,0);",
+    "  ctx.fillStyle='rgba(255,255,255,.035)';for(let i=0;i<900;i++){const x=Math.random()*512,y=Math.random()*512,s=.5+Math.random()*2;ctx.fillRect(x,y,s,s);}ctx.fillStyle='rgba(0,0,0,.035)';for(let i=0;i<700;i++){const x=Math.random()*512,y=Math.random()*512,s=.5+Math.random()*2;ctx.fillRect(x,y,s,s);}",
     "  if(kind==='brick'){ctx.strokeStyle='rgba(63,29,20,.38)';ctx.lineWidth=2;for(let y=0;y<512;y+=18){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(512,y);ctx.stroke();const offset=(Math.floor(y/18)%2)*26;for(let x=-offset;x<512;x+=52){ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x,y+18);ctx.stroke();}}}",
     "  if(kind==='industrial'){ctx.strokeStyle='rgba(255,255,255,.12)';ctx.lineWidth=2;for(let x=0;x<512;x+=18){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,512);ctx.stroke();}}",
     "  if(kind==='glass'){const g=ctx.createLinearGradient(0,0,512,0);g.addColorStop(0,'rgba(180,230,245,.18)');g.addColorStop(.5,'rgba(255,255,255,.34)');g.addColorStop(1,'rgba(67,118,143,.18)');ctx.fillStyle=g;ctx.fillRect(0,0,512,512);}",
@@ -196,6 +196,8 @@ try {
   if (/THREE\.B\s+ufferGeometry/.test(source)) throw new Error('Flight source chunk boundary is still malformed');
   if (!source.includes('terrainZoom: 14,')) throw new Error('HD terrain upgrade did not apply');
   if (!source.includes('function makeRoofMaterial(kind)')) throw new Error('Building material upgrade did not apply');
+  if (!source.includes('elevationScale=2**shift')) throw new Error('HD elevation sampling upgrade did not apply');
+  if (!source.includes('roofIndices = [], wallIndices = []')) throw new Error('Building roof/facade grouping upgrade did not apply');
   const moduleUrl = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
   try { await import(moduleUrl); } finally { URL.revokeObjectURL(moduleUrl); }
 } catch (error) {
