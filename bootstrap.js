@@ -1,4 +1,4 @@
-const VERSION = 'loader-v3-boundary-timer';
+const VERSION = 'loader-v4-boundary-timer';
 const PARTS = [
   'app-part-00.txt',
   'app-part-01.txt',
@@ -28,10 +28,14 @@ function normalizeChunk(text) {
   return text.replace(/^\uFEFF/, '').replace(/\r?\n$/, '');
 }
 
+function repairChunkBoundaries(source) {
+  return source.replace(/THREE\.B\s*ufferGeometry/g, 'THREE.BufferGeometry');
+}
+
 function modernizeTimer(source) {
   if (!source.includes('const clock = new THREE.Clock();')) return source;
 
-  source = source
+  return source
     .replace(
       'const clock = new THREE.Clock();',
       'const timer = new THREE.Timer();\ntimer.connect(document);',
@@ -42,16 +46,15 @@ function modernizeTimer(source) {
       'function animate() {\n  requestAnimationFrame(animate);',
       'function animate(timestamp) {\n  requestAnimationFrame(animate);\n  timer.update(timestamp);',
     );
-
-  return source;
 }
 
 try {
   const chunks = await Promise.all(PARTS.map(loadPart));
   let source = chunks.map(normalizeChunk).join('');
+  source = repairChunkBoundaries(source);
   source = modernizeTimer(source);
 
-  if (/THREE\.B\s+ufferGeometry/.test(source)) {
+  if (/THREE\.B\s*ufferGeometry/.test(source)) {
     throw new Error('Flight source chunk boundary is still malformed');
   }
 
