@@ -123,11 +123,11 @@
         <div class="solar-grid" id="solarGrid"></div>
       </div>
       <div class="tab-content" id="tab-settings">
-        <label class="setting"><span>Graphics quality<small>Dynamic pixel density</small></span><select id="qualitySelect"><option value="0.75">Battery</option><option value="1" selected>Balanced</option><option value="1.35">Ultra</option></select></label>
+        <label class="setting"><span>Graphics quality<small>Dynamic pixel density + terrain LOD</small></span><select id="qualitySelect"><option value="0.75">Battery</option><option value="1" selected>Balanced HD</option><option value="1.35">Ultra HD</option></select></label>
         <label class="setting"><span>Camera FOV<small>Degrees</small></span><input id="fovRange" type="range" min="55" max="95" value="72"/></label>
-        <label class="setting"><span>Terrain detail<small>Tile grid</small></span><select id="terrainSelect"><option value="1">3×3</option><option value="2">5×5</option></select></label>
+        <label class="setting"><span>Terrain radius<small>Outer HD tile grid</small></span><select id="terrainSelect"><option value="1">3×3</option><option value="2">5×5</option></select></label>
         <label class="setting toggle"><span>Cloud layer<small>Atmospheric particles</small></span><input id="cloudToggle" type="checkbox" checked/></label>
-        <label class="setting toggle"><span>Mapped 3D buildings<small>OpenStreetMap footprints + procedural façades</small></span><input id="buildingToggle" type="checkbox" checked/></label>
+        <label class="setting toggle"><span>Mapped 3D buildings<small>Textured OSM footprints + roofs</small></span><input id="buildingToggle" type="checkbox" checked/></label>
         <label class="setting toggle"><span>Tree cover<small>Instanced terrain vegetation</small></span><input id="vegetationToggle" type="checkbox" checked/></label>
         <label class="setting toggle"><span>Orbit lines<small>Solar system navigation</small></span><input id="orbitToggle" type="checkbox" checked/></label>
         <button id="installBtn" class="wide-btn hidden">INSTALL PWA</button>
@@ -139,6 +139,6 @@
     <div id="toast" class="toast"></div>
     <div id="portraitBlock" class="portrait-block"><div>↻</div><b>Rotate your phone</b><span>Flight Universe is designed for landscape controls.</span></div>
   </div>
-  <script type="module" src="./bootstrap.js?v=loader-v7-self-contained"></script>
+  <script type="module" src="./bootstrap.js?v=loader-v8-hd-terrain-facades"></script>
 </body>
 </html>
