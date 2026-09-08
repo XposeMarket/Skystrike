@@ -1,4 +1,4 @@
-const VERSION = 'loader-v5-boundary-timer-cache';
+const VERSION = 'loader-v6-boundary-timer-guard';
 const PARTS = [
   'app-part-00.txt',
   'app-part-01.txt',
@@ -29,7 +29,9 @@ function normalizeChunk(text) {
 }
 
 function repairChunkBoundaries(source) {
-  return source.replace(/THREE\.B\s*ufferGeometry/g, 'THREE.BufferGeometry');
+  // Only repair an actually broken identifier boundary. A valid
+  // THREE.BufferGeometry contains zero whitespace and must remain untouched.
+  return source.replace(/THREE\.B\s+ufferGeometry/g, 'THREE.BufferGeometry');
 }
 
 function modernizeTimer(source) {
@@ -62,7 +64,9 @@ try {
   source = modernizeTimer(source);
   source = cacheBustServiceWorker(source);
 
-  if (/THREE\.B\s*ufferGeometry/.test(source)) {
+  // \s+ intentionally requires real whitespace. \s* would also match the
+  // valid identifier THREE.BufferGeometry and falsely reject good source.
+  if (/THREE\.B\s+ufferGeometry/.test(source)) {
     throw new Error('Flight source chunk boundary is still malformed');
   }
 
