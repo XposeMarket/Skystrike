@@ -1,4 +1,4 @@
-const VERSION = 'vercel-loader-v2';
+const VERSION = 'loader-v3-boundary-timer';
 const PARTS = [
   'app-part-00.txt',
   'app-part-01.txt',
@@ -24,8 +24,37 @@ async function loadPart(name) {
   return remoteResponse.text();
 }
 
+function normalizeChunk(text) {
+  return text.replace(/^\uFEFF/, '').replace(/\r?\n$/, '');
+}
+
+function modernizeTimer(source) {
+  if (!source.includes('const clock = new THREE.Clock();')) return source;
+
+  source = source
+    .replace(
+      'const clock = new THREE.Clock();',
+      'const timer = new THREE.Timer();\ntimer.connect(document);',
+    )
+    .replaceAll('clock.getDelta()', 'timer.getDelta()')
+    .replaceAll('clock.elapsedTime', 'timer.getElapsed()')
+    .replace(
+      'function animate() {\n  requestAnimationFrame(animate);',
+      'function animate(timestamp) {\n  requestAnimationFrame(animate);\n  timer.update(timestamp);',
+    );
+
+  return source;
+}
+
 try {
-  const source = (await Promise.all(PARTS.map(loadPart))).join('');
+  const chunks = await Promise.all(PARTS.map(loadPart));
+  let source = chunks.map(normalizeChunk).join('');
+  source = modernizeTimer(source);
+
+  if (/THREE\.B\s+ufferGeometry/.test(source)) {
+    throw new Error('Flight source chunk boundary is still malformed');
+  }
+
   const moduleUrl = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
   try {
     await import(moduleUrl);
