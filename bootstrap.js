@@ -1,4 +1,4 @@
-const VERSION = 'loader-v6-boundary-timer-guard';
+const VERSION = 'loader-v7-self-contained';
 const PARTS = [
   'app-part-00.txt',
   'app-part-01.txt',
@@ -6,22 +6,14 @@ const PARTS = [
   'app-part-03.txt',
   'app-part-04.txt',
 ];
-const REMOTE_BASE = 'https://raw.githubusercontent.com/XposeMarket/Skystrike/flight-universe-pwa/';
 
 async function loadPart(name) {
-  const localUrl = new URL(`./${name}?v=${VERSION}`, import.meta.url);
-  try {
-    const localResponse = await fetch(localUrl, { cache: 'no-store' });
-    if (localResponse.ok) return localResponse.text();
-  } catch {
-    // Fall through to the compatibility source below.
+  const url = new URL(`./${name}?v=${VERSION}`, import.meta.url);
+  const response = await fetch(url, { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(`Missing bundled flight source ${name}: ${response.status}`);
   }
-
-  const remoteResponse = await fetch(`${REMOTE_BASE}${name}?v=${VERSION}`, { cache: 'no-store' });
-  if (!remoteResponse.ok) {
-    throw new Error(`Failed to load ${name}: ${remoteResponse.status}`);
-  }
-  return remoteResponse.text();
+  return response.text();
 }
 
 function normalizeChunk(text) {
@@ -29,8 +21,6 @@ function normalizeChunk(text) {
 }
 
 function repairChunkBoundaries(source) {
-  // Only repair an actually broken identifier boundary. A valid
-  // THREE.BufferGeometry contains zero whitespace and must remain untouched.
   return source.replace(/THREE\.B\s+ufferGeometry/g, 'THREE.BufferGeometry');
 }
 
@@ -64,8 +54,6 @@ try {
   source = modernizeTimer(source);
   source = cacheBustServiceWorker(source);
 
-  // \s+ intentionally requires real whitespace. \s* would also match the
-  // valid identifier THREE.BufferGeometry and falsely reject good source.
   if (/THREE\.B\s+ufferGeometry/.test(source)) {
     throw new Error('Flight source chunk boundary is still malformed');
   }
