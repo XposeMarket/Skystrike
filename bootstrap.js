@@ -1,4 +1,4 @@
-const VERSION = 'loader-v4-boundary-timer';
+const VERSION = 'loader-v5-boundary-timer-cache';
 const PARTS = [
   'app-part-00.txt',
   'app-part-01.txt',
@@ -48,11 +48,19 @@ function modernizeTimer(source) {
     );
 }
 
+function cacheBustServiceWorker(source) {
+  return source.replace(
+    "navigator.serviceWorker.register('./sw.js')",
+    `navigator.serviceWorker.register('./sw.js?v=${VERSION}')`,
+  );
+}
+
 try {
   const chunks = await Promise.all(PARTS.map(loadPart));
   let source = chunks.map(normalizeChunk).join('');
   source = repairChunkBoundaries(source);
   source = modernizeTimer(source);
+  source = cacheBustServiceWorker(source);
 
   if (/THREE\.B\s*ufferGeometry/.test(source)) {
     throw new Error('Flight source chunk boundary is still malformed');
