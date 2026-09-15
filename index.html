@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
   <meta name="theme-color" content="#02050b" />
+  <meta name="description" content="Flight Universe — fly across streamed Earth terrain, climb into orbit, and explore the solar system." />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -12,6 +13,7 @@
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="./icon.svg" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/XposeMarket/Skystrike@d01bf18eadbf45a2007bca98fb5147ee968a0cec/styles.css" />
+  <link rel="stylesheet" href="./styles-v10.css?v=experience-overhaul" />
   <script type="importmap">
     {
       "imports": {
@@ -26,18 +28,40 @@
   <div id="app">
     <canvas id="world"></canvas>
     <div id="vignette"></div>
-    <div id="loading" class="loading"><div class="spinner"></div><div id="loadingText">INITIALIZING FLIGHT SYSTEMS</div></div>
+    <div class="cinematic-grain" aria-hidden="true"></div>
+
+    <div id="loading" class="loading">
+      <div class="loading-lockup">
+        <div class="brand-mark loading-mark">FU</div>
+        <div class="spinner"></div>
+        <div id="loadingText">INITIALIZING FLIGHT SYSTEMS</div>
+        <div class="loading-track"><i></i></div>
+      </div>
+    </div>
 
     <section id="startScreen" class="start-screen">
-      <div class="brand-mark">FU</div>
-      <div class="eyebrow">EARTH → ORBIT → SOLAR SYSTEM</div>
-      <h1>FLIGHT<br/>UNIVERSE</h1>
-      <p>Atmospheric flight over real-world imagery and terrain. Climb into orbit, cross the solar system, and drop back into places on Earth.</p>
-      <div class="start-actions">
-        <button id="startBtn" class="primary">START FLIGHT</button>
-        <button id="quickSpaceBtn" class="secondary">START IN ORBIT</button>
+      <div class="start-copy">
+        <div class="brand-row"><div class="brand-mark">FU</div><span>FLIGHT UNIVERSE / V10</span></div>
+        <div class="eyebrow">EARTH → ORBIT → SOLAR SYSTEM</div>
+        <h1>FLIGHT<br/>UNIVERSE</h1>
+        <p>Fly over streamed real-world imagery and elevation, thread through mapped cities, climb out of the atmosphere, and keep going.</p>
+        <div class="start-actions">
+          <button id="startBtn" class="primary">START ON EARTH <span>↗</span></button>
+          <button id="quickSpaceBtn" class="secondary">START IN ORBIT</button>
+        </div>
+        <div class="feature-rail" aria-label="Flight Universe features">
+          <span><b>REAL EARTH</b> streamed imagery + terrain</span>
+          <span><b>3D CITIES</b> mapped buildings + collision</span>
+          <span><b>ORBITAL</b> continuous Earth-to-space flight</span>
+          <span><b>COMBAT</b> Rafale cannon + rockets</span>
+        </div>
+        <div class="start-foot">Landscape recommended · WASD / QE · V camera · F cannon · R rocket · P pause · H help</div>
       </div>
-      <div class="start-foot">Best in landscape · Headphones recommended · PWA installable</div>
+      <div class="start-telemetry" aria-hidden="true">
+        <span>WORLD STREAM</span><b>LIVE</b>
+        <span>TERRAIN LOD</span><b>ADAPTIVE</b>
+        <span>FLIGHT MODEL</span><b>ACTIVE</b>
+      </div>
     </section>
 
     <div id="hud" class="hud hidden">
@@ -47,8 +71,14 @@
           <div class="location" id="locationText">URBANA, MD</div>
           <div class="heading"><span id="headingText">000</span><small>°</small></div>
         </div>
-        <button id="menuBtn" class="icon-btn" aria-label="Menu">☰</button>
+        <div class="hud-actions">
+          <button id="helpBtn" class="icon-btn hud-tool" aria-label="Help">?</button>
+          <button id="pauseBtn" class="icon-btn hud-tool" aria-label="Pause flight">Ⅱ</button>
+          <button id="menuBtn" class="icon-btn" aria-label="Flight computer">☰</button>
+        </div>
       </div>
+
+      <div id="flightWarning" class="flight-warning" aria-live="polite"></div>
 
       <div id="navOverlay" class="nav-overlay">
         <div class="nav-map-shell">
@@ -58,7 +88,7 @@
         <div class="nav-readout"><span id="navTargetText">NO DESTINATION</span><b id="navDistanceText">--</b></div>
       </div>
       <div id="guidanceCue" class="guidance-cue hidden" aria-live="polite">
-        <span class="guidance-arrow" id="guidanceArrow">?</span>
+        <span class="guidance-arrow" id="guidanceArrow">↑</span>
         <span><b id="guidanceText">SET A DESTINATION</b><small id="guidanceSubtext">Search Earth to begin navigation</small></span>
       </div>
 
@@ -75,23 +105,27 @@
       <div class="horizon" id="horizon"><span></span><span></span><span></span></div>
       <div class="telemetry" id="telemetry">THR <b id="thrText">35</b>% · AGL <b id="aglText">0</b> FT · <b id="fpsText">60</b> FPS</div>
 
+      <div class="system-strip" aria-label="System status">
+        <span id="aircraftStatus">DASSAULT RAFALE B</span>
+        <span id="qualityStatus">AUTO 100% · 60 FPS</span>
+        <span id="networkStatus">ONLINE TILES</span>
+        <span id="updateStatus">BUILD V10</span>
+      </div>
+
       <div class="mobile-controls">
         <div class="stick-zone" id="stickZone">
           <div class="stick-ring"><div class="stick-knob" id="stickKnob"></div></div>
           <span>PITCH / ROLL</span>
         </div>
-
         <div class="yaw-controls">
           <button data-yaw="-1">RUD ◀</button>
           <button id="spaceBtn" class="space-control">ORBIT</button>
           <button data-yaw="1">RUD ▶</button>
         </div>
-
         <div class="action-stack">
           <button id="cameraBtn" class="round-action">CAM</button>
           <button id="boostBtn" class="round-action boost">AB</button>
         </div>
-
         <div class="throttle-zone" id="throttleZone">
           <span class="thr-max">MAX</span>
           <div class="throttle-track"><div class="throttle-fill" id="throttleFill"></div><div class="throttle-knob" id="throttleKnob"></div></div>
@@ -102,43 +136,65 @@
 
     <aside id="panel" class="panel">
       <div class="panel-handle"></div>
-      <div class="panel-head"><div><small>FLIGHT COMPUTER</small><h2 id="panelTitle">World</h2></div><button id="closePanel" class="icon-btn">×</button></div>
+      <div class="panel-head">
+        <div><small>FLIGHT COMPUTER</small><h2 id="panelTitle">World</h2></div>
+        <button id="closePanel" class="icon-btn" aria-label="Close flight computer">×</button>
+      </div>
       <div class="tabs">
         <button class="tab active" data-tab="aircraft">AIRCRAFT</button>
         <button class="tab" data-tab="places">PLACES</button>
         <button class="tab" data-tab="solar">SOLAR</button>
         <button class="tab" data-tab="settings">SYSTEM</button>
       </div>
-      <div class="tab-content active" id="tab-aircraft">
-        <div class="cards" id="aircraftCards"></div>
-      </div>
+      <div class="tab-content active" id="tab-aircraft"><div class="cards" id="aircraftCards"></div></div>
       <div class="tab-content" id="tab-places">
-        <div class="search-row"><input id="placeSearch" placeholder="Search a city or landmark"/><button id="searchPlaceBtn">SET</button></div>
+        <div class="search-row"><input id="placeSearch" placeholder="Search city, landmark, or lat, lon" autocomplete="off"/><button id="searchPlaceBtn">SET</button></div>
         <div id="destinationCard" class="destination-card hidden"><span>DESTINATION</span><b id="destinationName">--</b><button id="clearDestinationBtn" class="clear-destination">CLEAR</button></div>
         <div class="subhead">QUICK LOCATIONS</div>
         <div class="cards compact" id="placeCards"></div>
         <div class="source-note">Earth mode streams Esri World Imagery, AWS Terrarium elevation, and OpenStreetMap building data at runtime.</div>
       </div>
-      <div class="tab-content" id="tab-solar">
-        <div class="solar-grid" id="solarGrid"></div>
-      </div>
+      <div class="tab-content" id="tab-solar"><div class="solar-grid" id="solarGrid"></div></div>
       <div class="tab-content" id="tab-settings">
-        <label class="setting"><span>Graphics quality<small>Dynamic pixel density + terrain LOD</small></span><select id="qualitySelect"><option value="0.75">Battery</option><option value="1" selected>Balanced HD</option><option value="1.35">Ultra HD</option></select></label>
-        <label class="setting"><span>Camera FOV<small>Degrees</small></span><input id="fovRange" type="range" min="55" max="95" value="72"/></label>
+        <label class="setting"><span>Graphics quality<small>Terrain detail + base render density</small></span><select id="qualitySelect"><option value="0.75">Battery</option><option value="1" selected>Balanced HD</option><option value="1.35">Ultra HD</option></select></label>
+        <label class="setting toggle"><span>Adaptive resolution<small>Protect frame rate automatically</small></span><input id="autoQualityToggle" type="checkbox" checked/></label>
+        <label class="setting"><span>Camera FOV<small>Base field of view</small></span><input id="fovRange" type="range" min="55" max="95" value="72"/></label>
+        <label class="setting toggle"><span>Dynamic camera<small>Speed-sensitive field of view</small></span><input id="cameraMotionToggle" type="checkbox" checked/></label>
         <label class="setting"><span>Terrain radius<small>Outer HD tile grid</small></span><select id="terrainSelect"><option value="1">3×3</option><option value="2">5×5</option></select></label>
-        <label class="setting toggle"><span>Cloud layer<small>Atmospheric particles</small></span><input id="cloudToggle" type="checkbox" checked/></label>
+        <label class="setting toggle"><span>Cloud layer<small>Soft atmospheric cloud clusters</small></span><input id="cloudToggle" type="checkbox" checked/></label>
         <label class="setting toggle"><span>Mapped 3D buildings<small>Textured OSM footprints + destructible roofs</small></span><input id="buildingToggle" type="checkbox" checked/></label>
         <label class="setting toggle"><span>Tree cover<small>Instanced terrain vegetation</small></span><input id="vegetationToggle" type="checkbox" checked/></label>
+        <label class="setting toggle"><span>Flight audio<small>Procedural engine + wind layer</small></span><input id="audioToggle" type="checkbox" checked/></label>
+        <label class="setting toggle"><span>Haptics<small>Control feedback where supported</small></span><input id="hapticsToggle" type="checkbox" checked/></label>
         <label class="setting toggle"><span>Orbit lines<small>Solar system navigation</small></span><input id="orbitToggle" type="checkbox" checked/></label>
         <button id="installBtn" class="wide-btn hidden">INSTALL PWA</button>
         <button id="resetBtn" class="wide-btn ghost">RESET FLIGHT</button>
       </div>
     </aside>
 
+    <section id="helpOverlay" class="modal-overlay" aria-label="Flight controls">
+      <div class="modal-card help-card">
+        <div class="modal-head"><div><small>QUICK REFERENCE</small><h2>Flight controls</h2></div><button id="closeHelpBtn" class="icon-btn" aria-label="Close help">×</button></div>
+        <div class="control-grid">
+          <div><kbd>W / S</kbd><span>Pitch</span></div><div><kbd>A / D</kbd><span>Roll + turn</span></div>
+          <div><kbd>Q / E</kbd><span>Rudder</span></div><div><kbd>SHIFT</kbd><span>Afterburner</span></div>
+          <div><kbd>V</kbd><span>Cycle camera</span></div><div><kbd>O</kbd><span>Orbit / Earth</span></div>
+          <div><kbd>F</kbd><span>Rafale cannon</span></div><div><kbd>R</kbd><span>Rafale rocket</span></div>
+          <div><kbd>[ / ]</kbd><span>Throttle</span></div><div><kbd>1 / 2 / 3</kbd><span>Aircraft</span></div>
+          <div><kbd>P</kbd><span>Pause</span></div><div><kbd>H</kbd><span>Help</span></div>
+        </div>
+        <p>On mobile, use the left flight stick, right throttle, rudder buttons, and action controls. The simulator auto-switches to the Shuttle when you climb beyond an atmospheric aircraft's envelope.</p>
+      </div>
+    </section>
+
+    <section id="pauseOverlay" class="pause-overlay" aria-label="Flight paused">
+      <div class="pause-card"><small>FLIGHT UNIVERSE</small><h2>PAUSED</h2><p>Your flight is frozen. Terrain and cached assets stay ready.</p><button id="resumeBtn" class="primary">RESUME FLIGHT</button></div>
+    </section>
+
     <div class="attribution">Imagery © Esri · Elevation © Mapzen/AWS · Buildings © OpenStreetMap contributors</div>
     <div id="toast" class="toast"></div>
-    <div id="portraitBlock" class="portrait-block"><div>↻</div><b>Rotate your phone</b><span>Flight Universe is designed for landscape controls.</span></div>
+    <div id="portraitBlock" class="portrait-block"><div>↻</div><b>Rotate your phone</b><span>Flight Universe is designed around landscape flight controls.</span></div>
   </div>
-  <script type="module" src="./bootstrap-v9.js?v=loader-v9-aircraft-weapons-destruction"></script>
+  <script type="module" src="./bootstrap-v10.js?v=experience-overhaul"></script>
 </body>
 </html>
