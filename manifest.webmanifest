@@ -1,12 +1,17 @@
 {
+  "id": "./",
   "name": "Flight Universe",
   "short_name": "Flight Universe",
-  "description": "Mobile Earth-to-space flight simulator built with Three.js.",
+  "description": "Fly across streamed Earth terrain, climb into orbit, and explore the solar system in a Three.js flight simulator.",
   "start_url": "./",
+  "scope": "./",
   "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
   "orientation": "landscape",
   "background_color": "#02050b",
   "theme_color": "#02050b",
+  "lang": "en",
+  "categories": ["games", "simulation", "entertainment"],
   "icons": [
     {
       "src": "./icon.svg",
