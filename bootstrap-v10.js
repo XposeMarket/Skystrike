@@ -184,6 +184,8 @@ try {
   const upgradeSource = upgradeV10.toString();
   code = `const V10_UPGRADE_CODE=${JSON.stringify(upgradeSource)};\n` + code;
   code = code.replace("const PATCH_VERSION='loader-v9-aircraft-weapons-destruction';", `const PATCH_VERSION='${VERSION}';`);
+  // jsDelivr intermittently rejects the NASA Global Hawk binary. Keep the aircraft on NASA's CORS-enabled canonical asset.
+  code = code.replace('https://cdn.jsdelivr.net/gh/nasa/NASA-3D-Resources@master/3D%20Models/Global%20Hawk/Global%20Hawk.glb', 'https://assets.science.nasa.gov/content/dam/science/cds/3d/resources/model/global-hawk/Global%20Hawk.glb');
   if (!code.includes("UPGRADE_CODE+'\\nfunction cacheBustServiceWorker'")) throw new Error('v9 loader injection point changed');
   code = code.replace("UPGRADE_CODE+'\\nfunction cacheBustServiceWorker'", "UPGRADE_CODE+'\\n'+V10_UPGRADE_CODE+'\\nfunction cacheBustServiceWorker'");
   if (!code.includes('source = upgradeAircraftWeapons(source);')) throw new Error('v9 aircraft upgrade hook changed');
