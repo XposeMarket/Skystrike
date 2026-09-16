@@ -189,7 +189,7 @@ try {
   if (!code.includes("UPGRADE_CODE+'\\nfunction cacheBustServiceWorker'")) throw new Error('v9 loader injection point changed');
   code = code.replace("UPGRADE_CODE+'\\nfunction cacheBustServiceWorker'", "UPGRADE_CODE+'\\n'+V10_UPGRADE_CODE+'\\nfunction cacheBustServiceWorker'");
   if (!code.includes('source = upgradeAircraftWeapons(source);')) throw new Error('v9 aircraft upgrade hook changed');
-  code = code.replace('source = upgradeAircraftWeapons(source);', 'source = upgradeAircraftWeapons(source);\n  source = upgradeV10(source);');
+  code = code.replace('source = upgradeAircraftWeapons(source);', 'source = upgradeAircraftWeapons(source);\\n  source = upgradeV10(source);');
   const moduleUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
   try { await import(moduleUrl); } finally { URL.revokeObjectURL(moduleUrl); }
 } catch (error) {
