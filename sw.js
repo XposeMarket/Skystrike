@@ -1,4 +1,4 @@
-const CORE_CACHE='flight-universe-core-v12-experience';
+const CORE_CACHE='flight-universe-core-v13-loader-fix';
 const ASSET_CACHE='flight-universe-assets-v7';
 const CORE=['./','./index.html','./styles-v10.css','./bootstrap-v10.js','./manifest.webmanifest','./icon.svg'];
 const CACHEABLE_EXTERNAL=new Set(['cdn.jsdelivr.net','raw.githubusercontent.com','assets.science.nasa.gov','threejs.org']);
