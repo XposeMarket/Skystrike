@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {DRACOLoader} from 'three/addons/loaders/DRACOLoader.js';
 
 // A failed download must never leave an invisible vehicle or masquerade as a jet.
 export function makeAircraftPreview(key) {
@@ -29,10 +30,13 @@ export function makeAircraftPreview(key) {
   }
   return g;
 }
-function dispose(root){const gs=new Set(),ms=new Set(),ts=new Set();root?.traverse(o=>{if(o.geometry)gs.add(o.geometry);for(const m of o.material?(Array.isArray(o.material)?o.material:[o.material]):[]){ms.add(m);for(const v of Object.values(m))if(v?.isTexture)ts.add(v);}});gs.forEach(g=>g.dispose());ms.forEach(m=>m.dispose());ts.forEach(t=>t.dispose());}
+function dispose(root){const gs=new Set(),ms=new Set(),ts=new Set(),images=new Set();root?.traverse(o=>{if(o.geometry)gs.add(o.geometry);for(const m of o.material?(Array.isArray(o.material)?o.material:[o.material]):[]){ms.add(m);for(const v of Object.values(m))if(v?.isTexture)ts.add(v);}});gs.forEach(g=>g.dispose());ms.forEach(m=>m.dispose());ts.forEach(t=>{if(t.image?.close)images.add(t.image);t.dispose();});images.forEach(i=>i.close());}
 
 export function createAircraftManager({state,configs,root,toast,onChange=()=>{}}) {
-  const loader=new GLTFLoader();let serial=0,visual=null,abort=null;
+  // Both NASA GLBs require KHR_draco_mesh_compression. Serve the matching decoder
+  // alongside the models, and share a bounded worker pool between selections.
+  const draco=new DRACOLoader().setDecoderPath('./assets/draco/').setWorkerLimit(2);
+  const loader=new GLTFLoader().setDRACOLoader(draco);let serial=0,visual=null,abort=null;
   const status={key:null,phase:'idle',source:null,error:null};
   const update=(phase,source=null,error=null)=>{Object.assign(status,{key:state.currentAircraft,phase,source,error});onChange({...status});};
   function swap(next){if(visual){root.remove(visual);dispose(visual);}visual=next;root.add(next);}
@@ -61,7 +65,9 @@ export function createAircraftManager({state,configs,root,toast,onChange=()=>{}}
         if(!raw)return {phase:'superseded'};
         raw.updateMatrixWorld(true);const box=new THREE.Box3().setFromObject(raw),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3());
         if(!Number.isFinite(size.length())||size.length()<.0001){dispose(raw);throw new Error('Empty aircraft model');}
-        const wrapper=new THREE.Group();wrapper.name=`${key}-model`;raw.position.sub(center);wrapper.add(raw);wrapper.scale.setScalar(cfg.displaySize/Math.max(size.x,size.y,size.z));wrapper.rotation.set(...cfg.rotation);
+        const wrapper=new THREE.Group();wrapper.name=`${key}-model`;raw.position.sub(center);wrapper.add(raw);wrapper.scale.setScalar(cfg.displaySize/Math.max(size.x,size.y,size.z));
+        // Shuttle D is +X forward, +Z up, unlike the Y-up fighter/drone assets.
+        wrapper.rotation.set(...(key==='shuttle'?[-Math.PI/2,0,Math.PI/2]:cfg.rotation));
         wrapper.traverse(o=>{if(o.isMesh){o.castShadow=false;o.receiveShadow=false;}});
         if(token!==serial){dispose(wrapper);return {phase:'superseded'};}
         swap(wrapper);update('ready',url);if(!silent)toast(`${cfg.name} ready`);return {...status};
@@ -69,5 +75,5 @@ export function createAircraftManager({state,configs,root,toast,onChange=()=>{}}
     }
     update('preview',null,lastError);if(!silent)toast(`${cfg.name} · preview model active. Retry in Aircraft.`);return {...status};
   }
-  return {select,status,get visual(){return visual;},dispose(){++serial;abort?.abort();dispose(visual);visual=null;}};
+  return {select,status,get visual(){return visual;},dispose(){++serial;abort?.abort();dispose(visual);draco.dispose();visual=null;}};
 }
