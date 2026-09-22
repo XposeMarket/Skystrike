@@ -1,0 +1,41 @@
+name: Flight v11 validation
+on:
+  push:
+    branches: [chatgpt/flight-universe-v11]
+    paths: ['flight-v11/**','package.json','package-lock.json','vercel.json','.github/workflows/flight-v11.yml']
+  pull_request:
+    branches: [flight-universe-pwa]
+    paths: ['flight-v11/**','package.json','package-lock.json','vercel.json','.github/workflows/flight-v11.yml']
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/cache@v4
+        with:
+          path: .flight-cache
+          key: flight-inputs-v11-1
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flight-v11-validation
+          path: |
+            test-results/
+            dist/
+            flight-v11/
+            package-lock.json
+            .flight-cache/game.mjs
+          retention-days: 5

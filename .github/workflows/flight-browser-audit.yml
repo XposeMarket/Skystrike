@@ -1,0 +1,89 @@
+name: Flight browser audit
+on:
+  push:
+    branches: [chatgpt/flight-universe-v11]
+    paths: [.github/workflows/flight-browser-audit.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser test tools
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1 agent-browser
+          npx playwright install --with-deps chromium
+      - name: Inspect live aircraft and capture assembled runtime
+        run: |
+          mkdir -p audit/site audit/screenshots
+          cat > audit-run.mjs <<'JS'
+          import { chromium } from 'playwright';
+          import { writeFile, mkdir } from 'node:fs/promises';
+          const origin = 'https://flight-universe-pwa.vercel.app';
+          const browser = await chromium.launch({headless:true,args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+          const page = await browser.newPage({viewport:{width:1440,height:900}});
+          const report={errors:[],console:[],failures:[],aircraft:[],responses:[]};
+          const pending=[];
+          page.on('pageerror',e=>report.errors.push(String(e)));
+          page.on('console',m=>{if(m.type()==='error'||m.type()==='warning')report.console.push(m.text())});
+          page.on('requestfailed',r=>report.failures.push({url:r.url(),error:r.failure()?.errorText}));
+          page.on('response',r=>{
+            const url=r.url(); if(r.status()>=400)report.responses.push({url,status:r.status()});
+            if(url.startsWith(origin+'/')&&/\.(?:js|css|html|webmanifest|txt)(?:\?|$)/.test(url))pending.push((async()=>{try{await writeFile('audit/site/'+new URL(url).pathname.split('/').pop(),await r.body())}catch{}})());
+          });
+          await page.addInitScript(()=>{
+            window.__auditModules=[];
+            const original=URL.createObjectURL;
+            URL.createObjectURL=function(blob){if(blob.type?.includes('javascript'))blob.text().then(text=>window.__auditModules.push(text));return original.call(URL,blob)};
+          });
+          try {
+            await page.goto(origin,{waitUntil:'domcontentloaded',timeout:45000});
+            await page.waitForFunction(()=>!!window.__FLIGHT_UNIVERSE__,{},{timeout:90000});
+            await page.screenshot({path:'audit/screenshots/launch.png'});
+            await page.locator('#startBtn').click();
+            await page.waitForTimeout(6000);
+            for(const id of ['rafale','globalhawk','shuttle']){
+              const result=await page.evaluate(async id=>{
+                const api=window.__FLIGHT_UNIVERSE__;
+                const started=performance.now();
+                try{await Promise.race([api.setAircraft(id),new Promise((_,reject)=>setTimeout(()=>reject(new Error('setAircraft timeout')),20000))]);return {id,elapsed:performance.now()-started,current:api.state.currentAircraft,mode:api.state.mode,loading:document.querySelector('#loading')?.className,toast:document.querySelector('#toast')?.textContent};}catch(e){return{id,error:String(e),current:api.state.currentAircraft}}
+              },id);
+              report.aircraft.push(result);
+              await page.waitForTimeout(1200);
+              await page.screenshot({path:`audit/screenshots/${id}.png`});
+            }
+            report.state=await page.evaluate(()=>{const s=window.__FLIGHT_UNIVERSE__.state;return {mode:s.mode,currentAircraft:s.currentAircraft,quality:s.quality}});
+          } catch(e){report.auditError=String(e)}
+          const modules=await page.evaluate(()=>window.__auditModules||[]).catch(()=>[]);
+          for(let i=0;i<modules.length;i++)await writeFile(`audit/runtime-${i}.js`,modules[i]);
+          await writeFile('audit/site/index.html',await (await fetch(origin)).text());
+          for(const path of ['bootstrap-v10.js','bootstrap-v9.js','bootstrap.js','sw.js','styles-v10.css','vercel.json']){
+            const r=await fetch(origin+'/'+path);if(r.ok)await writeFile('audit/site/'+path,await r.text());
+          }
+          await Promise.allSettled(pending);
+          await writeFile('audit/report.json',JSON.stringify(report,null,2));
+          console.log(JSON.stringify(report,null,2));
+          await browser.close();
+          JS
+          node audit-run.mjs
+      - name: Agent browser visual check
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          npx agent-browser --args '--use-gl=angle,--use-angle=swiftshader,--enable-unsafe-swiftshader' open https://flight-universe-pwa.vercel.app
+          npx agent-browser snapshot -i > audit/interactive.txt
+          npx agent-browser screenshot audit/screenshots/agent-browser.png
+          npx agent-browser close
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flight-browser-audit
+          path: audit/
+          retention-days: 3
