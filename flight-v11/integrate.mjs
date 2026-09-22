@@ -24,6 +24,7 @@ async function loadTerrain(lat,lon,name='EARTH') {
   replace("function enterSpace(target='Earth', instant=false) {",`function enterSpace(target='Earth', instant=false) {
   ++worldLoadSerial;surfaces.reset();clearTerrain();clearBuildings();setLoading('',false);
   if(state.currentAircraft!=='shuttle')void setAircraft('shuttle',true);`,'orbit transition');
+  replace("  if (!state.running) beginGame('space');","  if(!state.running){state.running=true;startScreen.classList.add('hidden');hud.classList.remove('hidden');}",'orbital start must not asynchronously overwrite the selected target');
   replace('function updateFlight(dt) {',`function updateFlight(dt) {
   if(state.mode==='surface'){surfaces.update(dt);return;}
   if(state.mode==='space'&&state.approachTarget&&surfaces.approach(dt))return;`,'surface flight dispatcher');
@@ -31,7 +32,11 @@ async function loadTerrain(lat,lon,name='EARTH') {
     flightPos.addScaledVector(forward,state.spaceVelocity*1100*dt);
     if(surfaces.checkApproach(previousSpacePosition))return;`,'swept planetary approach');
   replace('function updateHUD(elapsed) {',"function updateHUD(elapsed) {\n  if(state.mode==='surface'){surfaces.updateHUD();return;}", 'planet-aware instruments');
+  replace("n.textContent=navigator.onLine?'ONLINE TILES':'OFFLINE CACHE';","n.textContent=state.mode==='surface'?'PLANET MAP CACHED':navigator.onLine?'ONLINE TILES':'OFFLINE CACHE';",'body-aware network status');
   replace("if(state.mode==='space')return returnToEarth();const cfg=", "if(state.mode==='surface')return surfaces.leave();if(state.mode==='space')return returnToEarth();const cfg=",'planet orbit button');
+  replace("state.mode==='space' ? -200 : -35","state.mode==='space' ? -200 : -Math.max(35,(aircraftConfigs[state.currentAircraft]?.displaySize||16)*1.8)",'chase camera clears larger aircraft');
+  replace("state.mode==='space'?70:12","state.mode==='space'?70:Math.max(12,(aircraftConfigs[state.currentAircraft]?.displaySize||16)*.6)",'larger aircraft camera height');
+  replace("addScaledVector(forward,5).addScaledVector(up,2.2)","addScaledVector(forward,state.currentAircraft==='shuttle'?14:5).addScaledVector(up,2.2)",'Shuttle cockpit view');
   replace("window.__FLIGHT_UNIVERSE__={state,renderer,camera,scene,setAircraft,loadTerrain,enterSpace,returnToEarth};",`window.__FLIGHT_UNIVERSE__={state,renderer,camera,scene,setAircraft,loadTerrain,enterSpace,returnToEarth,surfaces,aircraftManager,flightPos,flightQuat,solarBodies,makeBuildingTile,facadeAtlasCount,build:'v11'};`,'diagnostics');
   replace('function animate(timestamp) {',`const surfaces=createPlanetSurfaces({state,renderer,scene,earthGroup,solarGroup,solarBodies,flightPos,flightQuat,aircraftRoot,camera,hemi,sunLight,toast,setLoading,setAircraft,clearTerrain,clearBuildings,enterOrbit:name=>enterSpace(name,true),returnEarth:geo=>loadTerrain(geo.lat,geo.lon,'EARTH REENTRY')});
 function animate(timestamp) {`,'surface system composition');

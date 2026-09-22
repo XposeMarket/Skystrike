@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {clamp,wrap,radians,degrees,geoAt,unitAt,localToGeo,geoToLocal,travelGeo,sampleHeight,segmentSphereEntry} from './planet-math.mjs';
+import {clamp,wrap,degrees,geoAt,unitAt,localToGeo,geoToLocal,travelGeo,sampleHeight,segmentSphereEntry} from './planet-math.mjs';
 
 export const SURFACE_BODIES={
   Mars:{radius:3396000,color:0xb87d58,sky:0x8b644e,dem:'mars',credit:'NASA MOLA + JPL/USGS Viking',sites:[{name:'Valles Marineris',lat:-13.5,lon:-59.2},{name:'Olympus Mons',lat:18.65,lon:-133.8},{name:'Jezero region',lat:18.38,lon:77.58}]},
@@ -9,12 +9,14 @@ const $=id=>document.getElementById(id);
 export function createPlanetSurfaces(api){
   const {state,renderer,scene,earthGroup,solarGroup,solarBodies,flightPos,flightQuat,aircraftRoot,camera,hemi,sunLight,toast,setLoading}=api;
   const group=new THREE.Group();group.name='mapped-planet-surface';group.visible=false;scene.add(group);
+  const attribution=document.querySelector('.attribution'),earthCredit=attribution?.textContent||'';
   const cache=new Map();let generation=0,controller=null,active=null,patch=null,origin=null,cooldown=0,lastUi=0;
   const material=new THREE.MeshStandardMaterial({roughness:1,metalness:0,side:THREE.FrontSide});
   function removePatch(){if(patch){group.remove(patch);patch.geometry.dispose();patch=null;}}
   function reset(){
     generation++;controller?.abort();controller=null;state.transitioning=false;state.approachTarget=null;state.surfaceBody=null;active=null;group.visible=false;removePatch();
     if($('surfaceReadout'))$('surfaceReadout').hidden=true;
+    if(attribution)attribution.textContent=earthCredit;
     $('navOverlay').style.display='';scene.background=new THREE.Color(0x01040a);scene.fog.color.setHex(0x6d8ba4);hemi.intensity=1.2;hemi.color.setHex(0xb9d9ff);sunLight.intensity=2.8;
     for(const child of scene.children)if(child.isPoints)child.visible=true;
   }
@@ -63,13 +65,17 @@ export function createPlanetSurfaces(api){
       // Never reuse the Earth tile origin or its map/elevation providers for another body.
       api.clearTerrain();api.clearBuildings();earthGroup.visible=false;solarGroup.visible=false;
       active={name,def,data};origin={lat:clamp(site.lat,-89.99,89.99),lon:wrap(site.lon+180,360)-180};state.mode='surface';state.surfaceBody=name;state.spaceTarget=name;state.surfaceGeo={...origin};
+      state.running=true;$('startScreen').classList.add('hidden');$('hud').classList.remove('hidden');
       group.visible=true;scene.background=new THREE.Color(def.sky);scene.fog.color.setHex(def.sky);scene.fog.density=name==='Mars'?.000006:0;hemi.intensity=name==='Mars'?.65:.28;hemi.color.setHex(name==='Mars'?0xd5b39b:0xc3d0e5);sunLight.intensity=2.5;
       for(const child of scene.children)if(child.isPoints)child.visible=name==='Moon';
       state.pitch=state.roll=state.yawAngle=0;state.heading=0;state.stickX=state.stickY=state.yaw=0;state.throttle=.35;state.speed=650;
-      flightQuat.identity();flightPos.set(0,elevation(origin.lat,origin.lon)+6000,0);buildPatch();snapCamera();
+      $('throttleFill').style.height='35%';$('throttleKnob').style.bottom='calc(35% - 4px)';
+      state.terrainBase=elevation(origin.lat,origin.lon);state.altitude=state.terrainBase+6000;
+      flightQuat.identity();flightPos.set(0,state.altitude,0);buildPatch();snapCamera();
       // Shuttle uses arcade reaction-control flight here, not atmospheric aerodynamic lift.
       if(state.currentAircraft!=='shuttle')void api.setAircraft('shuttle',true);
       $('navOverlay').style.display='none';$('guidanceCue').classList.add('hidden');$('spaceBtn').textContent='ORBIT';$('surfaceReadout').hidden=false;
+      if(attribution)attribution.textContent=`${def.credit} · Regional global maps, not close-up imagery · Aircraft NASA`;
       cooldown=performance.now()+3000;state.transitioning=false;setLoading('',false);updateHUD();toast(`${name.toUpperCase()} SURFACE · ${site.name||'orbital entry'} · O / ORBIT to leave`);return true;
     }catch(e){clearTimeout(timeout);if(token===generation){state.transitioning=false;setLoading('',false);toast(`Surface unavailable · ${e.message||e}`);}return false;}
   }
@@ -118,16 +124,16 @@ export function createPlanetSurfaces(api){
   }
   function updateHUD(){
     if(!active)return;const name=active.name,g=state.surfaceGeo||origin;
-    $('modeText').textContent=`${name.toUpperCase()} SURFACE`;$('locationText').textContent=`${g.lat.toFixed(3)}° ${g.lat>=0?'N':'S'} · ${g.lon.toFixed(3)}° E`;
+    $('modeText').textContent=`${name.toUpperCase()} SURFACE`;$('locationText').textContent=`${Math.abs(g.lat).toFixed(3)}° ${g.lat>=0?'N':'S'} · ${Math.abs(g.lon).toFixed(3)}° ${g.lon>=0?'E':'W'}`;
     $('speedText').textContent=Math.round(state.speed).toLocaleString();$('speedUnit').textContent='M/S';$('altText').textContent=(Math.max(0,state.altitude-state.terrainBase)/1000).toFixed(2);$('altUnit').textContent='KM AGL';$('headingText').textContent=String(Math.round(state.heading)).padStart(3,'0');$('thrText').textContent=Math.round(state.throttle*100);$('aglText').textContent=Math.round(Math.max(0,state.altitude-state.terrainBase)*3.28084).toLocaleString();
-    $('surfaceReadout').textContent=`${name.toUpperCase()} · REAL ${active.data.meta.pixelsPerDegree} PX/DEG ELEVATION\n${active.def.credit}\nArcade spacecraft controls · climb 90 km AGL to orbit`;
+    $('surfaceReadout').textContent=`${name.toUpperCase()} · REGIONAL MAP / ${active.data.meta.pixelsPerDegree} PX/DEG ELEVATION\n${active.def.credit}\nArcade spacecraft controls · climb 90 km AGL to orbit`;
     $('networkStatus').textContent='PLANET MAP CACHED';$('flightWarning').classList.remove('show');
   }
   function installUI(){
     const readout=document.createElement('div');readout.id='surfaceReadout';readout.hidden=true;readout.className='surface-readout';$('hud').append(readout);
     const section=document.createElement('section');section.className='surface-destinations';section.innerHTML='<div class="subhead">EXPLORE MAPPED SURFACES</div><p class="source-note">Mars and Moon use real global imagery and elevation. Regional detail is lower than Earth. Other bodies currently support orbital flybys only.</p>';
     for(const [name,def] of Object.entries(SURFACE_BODIES))for(const site of def.sites){const b=document.createElement('button');b.className='card';b.dataset.surface=name;b.textContent=`${name} · ${site.name} ↘`;b.addEventListener('click',()=>{$('panel').classList.remove('open');void enter(name,site);});section.append(b);}
-    const approachBtn=document.createElement('button');approachBtn.id='approachTargetBtn';approachBtn.className='wide-btn';approachBtn.textContent='APPROACH CURRENT ORBIT TARGET';approachBtn.addEventListener('click',()=>{if(state.mode!=='space'){toast('Choose an orbital destination first');return;}state.approachTarget=state.spaceTarget;$('panel').classList.remove('open');toast(`Approach assist · ${state.spaceTarget} · steer to cancel`);});section.append(approachBtn);$('tab-solar').append(section);
+    const approachBtn=document.createElement('button');approachBtn.id='approachTargetBtn';approachBtn.className='wide-btn';approachBtn.textContent='APPROACH CURRENT ORBIT TARGET';approachBtn.addEventListener('click',()=>{if(state.mode!=='space'){toast('Choose an orbital destination below first');return;}state.approachTarget=state.spaceTarget;$('panel').classList.remove('open');toast(`Approach assist · ${state.spaceTarget} · steer to cancel`);});section.append(approachBtn);$('tab-solar').prepend(section);
   }
   return {enter,leave,reset,update,checkApproach,approach,updateHUD,installUI,get active(){return active?.name||null;},get patch(){return patch;},elevation,get origin(){return origin;},get cachedBodies(){return [...cache.keys()];}};
 }
