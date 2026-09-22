@@ -2,7 +2,7 @@
 // GitHub code fetches, eval, or blob modules are shipped to the browser.
 export function integrate(source){
   function replace(needle,value,label){const next=source.replace(needle,value);if(next===source)throw new Error(`Legacy integration contract failed: ${label}`);source=next;}
-  source="import {createAircraftManager} from '../flight-v11/aircraft.mjs';\nimport {makeFacadeMaterial,mapBuildingUV,facadeAtlasCount} from '../flight-v11/buildings.mjs';\nimport {createPlanetSurfaces} from '../flight-v11/surfaces.mjs';\n"+source;
+  source="import {createAircraftManager} from '../flight-v11/aircraft.mjs';\nimport {makeFacadeMaterial,mapBuildingUV,facadeAtlasCount,facadeKind} from '../flight-v11/buildings.mjs';\nimport {createPlanetSurfaces} from '../flight-v11/surfaces.mjs';\nimport {nearestLandmarks,buildLandmark,suppressRadius} from '../flight-v11/landmarks.mjs';\n"+source;
   replace(/function fallbackAircraft\(\) \{[\s\S]*?\nfunction tileXY/,
 `const aircraftManager=createAircraftManager({state,configs:aircraftConfigs,root:aircraftRoot,toast,onChange:status=>{
   state.aircraftLoad=status;
@@ -15,6 +15,22 @@ function tileXY`,'awaitable aircraft manager');
 function makeRoofMaterial(kind){return makeFacadeMaterial(kind,renderer,true);}
 function seededRandom`,'shared physically scaled facade atlases');
   replace('      geometry.translate(0, base, 0);','      geometry.translate(0, base, 0);\n      mapBuildingUV(geometry,base,way.id);','upright facade UVs');
+  replace(
+    '  const groups = { default: [], glass: [], brick: [], industrial: [] };\n  const colliders = [];\n  let accepted = 0;',
+    '  const tileLat = (elements[0] && elements[0].geometry && elements[0].geometry[0] && elements[0].geometry[0].lat) || state.lat;\n  const tileLon = (elements[0] && elements[0].geometry && elements[0].geometry[0] && elements[0].geometry[0].lon) || state.lon;\n  const landmarks = nearestLandmarks(tileLat, tileLon, 2200, 4).map(L => {\n    const p = localFromGeo(L.lat, L.lon);\n    return {...L, x:p.x, z:p.z, radius:suppressRadius(L)};\n  });\n  const groups = { default: [], glass: [], brick: [], industrial: [], stone: [], civic: [], monument: [] };\n  const colliders = [];\n  let accepted = 0;',
+    'landmark positions before footprints'
+  );
+  replace(
+    'groups[kind].push(geometry);',
+    'const nearLandmark=(landmarks||[]).some(L=>Math.hypot(cx-L.x,cz-L.z)<L.radius); if(!nearLandmark){ const tagged=facadeKind(tags); const facade=tagged==="default"?kind:tagged; (groups[facade]||groups[kind]).push(geometry); }',
+    'landmark footprint suppression and richer facade kinds'
+  );
+  replace(
+    '  const group = new THREE.Group();\n  group.name = `osm-buildings-${BUILDING_ZOOM}-${tx}-${ty}`;',
+    '  const group = new THREE.Group();\n  group.name = `osm-buildings-${BUILDING_ZOOM}-${tx}-${ty}`;\n  group.userData.landmarks = landmarks;\n  for (const L of landmarks) {\n    const model = buildLandmark(L);\n    model.position.set(L.x, terrainHeightAt(L.x, L.z), L.z);\n    group.add(model);\n  }',
+    'place nearby landmark silhouettes'
+  );
+
   replace('mats.forEach(m=>{if(m.map)m.map.dispose?.();m.dispose?.();});',"mats.forEach(m=>{for(const v of Object.values(m))if(v?.isTexture&&!v.userData?.shared)v.dispose();m.dispose?.();});",'shared texture ownership');
   replace('async function loadTerrain(lat,lon,name=\'EARTH\') {',`let worldLoadSerial=0;
 async function loadTerrain(lat,lon,name='EARTH') {

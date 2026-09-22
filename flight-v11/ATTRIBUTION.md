@@ -1,6 +1,6 @@
 # Flight Universe v11 data and limitations
 
-Earth imagery: Esri World Imagery. Elevation: Mapzen/AWS Terrarium. Building footprints and navigation: OpenStreetMap contributors, ODbL. Building facades, roof patterns and preview aircraft are procedural artwork, not photographic replicas of individual real buildings.
+Earth imagery: Esri World Imagery. Elevation: Mapzen/AWS Terrarium. Building footprints and navigation: OpenStreetMap contributors, ODbL. Building facades, roof patterns, preview aircraft, and landmark silhouettes are procedural artwork placed at published coordinates. They are recognizable shapes, not photogrammetry or photographic replicas of the real monuments.
 
 NASA Global Hawk: NASA / Michael D. Carbajal, https://science.nasa.gov/3d-resources/global-hawk/
 NASA Space Shuttle (D): NASA / Johnson Space Center, https://science.nasa.gov/3d-resources/space-shuttle-d/
