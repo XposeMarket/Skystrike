@@ -6,7 +6,7 @@ export function integrate(source){
   replace(/function fallbackAircraft\(\) \{[\s\S]*?\nfunction tileXY/,
 `const aircraftManager=createAircraftManager({state,configs:aircraftConfigs,root:aircraftRoot,toast,onChange:status=>{
   state.aircraftLoad=status;
-  const el=document.getElementById('modelLoadStatus');if(el)el.textContent=status.phase==='ready'?'LOCAL 3D MODEL READY':status.phase==='loading'?'LOADING MODEL · CONTROLS AVAILABLE':'PREVIEW ACTIVE · RETRY MODEL';
+  const el=document.getElementById('modelLoadStatus');if(el)el.textContent=status.phase==='ready'?'LOCAL 3D MODEL READY':status.phase==='loading'?'LOADING MODEL ? CONTROLS AVAILABLE':'PREVIEW ACTIVE ? RETRY MODEL';
 }});
 async function setAircraft(key,silent=false){return aircraftManager.select(key,silent);}
 function tileXY`,'awaitable aircraft manager');
@@ -77,7 +77,8 @@ async function buildSolarSystem`,'map texture timeout');
 
 function terrainTileBounds`,'elevation timeout');
   // v12: per-aircraft flight model, airports/runways, landing gear, takeoff & landing.
-  source="import {createFlightModel} from '../flight-v11/flightmodel.mjs';\nimport {createAirports,installAirportUI} from '../flight-v11/airports.mjs';\n"+source;
+  source="import {createFlightModel} from '../flight-v11/flightmodel.mjs';\nimport {createAirports,installAirportUI} from '../flight-v11/airports.mjs';\nimport {createPhotoreal} from '../flight-v11/photoreal.mjs';\n"+source;
+  replace(/renderer\.render\(scene,camera\);/,'if(state.mode===\'earth\')photoreal.update();else photoreal.stop();renderer.render(scene,camera);','photoreal tile update');
   replace(/    const max = cfg\.maxSpeed\*\(state\.boost\?1\.16:1\);[\s\S]*?if\(flightPos\.y<minY\)\{[^\n]*\n/,
 `    if(fm.step(dt,cfg)){aircraftRoot.position.copy(flightPos);aircraftRoot.quaternion.copy(flightQuat);state.altitude=flightPos.y;return;}
     const previousX=flightPos.x,previousZ=flightPos.z;
@@ -93,10 +94,11 @@ function terrainTileBounds`,'elevation timeout');
   window.__FLIGHT_UNIVERSE__.ready=true;`,'v12 airport UI');
   replace('function animate(timestamp) {',
 `const airports=createAirports({state,earthGroup,flightPos,localFromGeo,terrainHeightAt,toast,configs:aircraftConfigs});
+const photoreal=createPhotoreal({renderer,camera,state,earthGroup,terrainTiles,buildingsGroup,terrainHeightAt,toast});
 const fm=createFlightModel({state,flightPos,flightQuat,flightEuler,aircraftRoot,airports,terrainHeightAt,toast,spawnExplosion,configs:aircraftConfigs});
 state.throttleUI=t=>{const f=document.getElementById('throttleFill'),k=document.getElementById('throttleKnob');if(f)f.style.height=(t*100)+'%';if(k)k.style.bottom='calc('+(t*100)+'% - 4px)';};
 let v12GuideAt=0;
-function updateApproachGuide(){const now=performance.now();if(now-v12GuideAt<300)return;v12GuideAt=now;let el=document.getElementById('ilsGuide');if(!el){el=document.createElement('div');el.id='ilsGuide';el.className='ils-guide';document.getElementById('hud')?.append(el);}const g=state.mode==='earth'&&!fm.onGround?airports.approachGuidance():null;if(!g||g.dist>12000){el.hidden=true;return;}el.hidden=false;const nm=(g.dist/1852).toFixed(1),d=Math.round(g.dev*3.28084);el.textContent='RWY '+g.ident+' · '+nm+' NM · GS '+(Math.abs(d)<60?'ON':d>0?'HIGH +'+d:'LOW '+d)+' FT';el.dataset.state=Math.abs(d)<60?'on':'off';}
+function updateApproachGuide(){const now=performance.now();if(now-v12GuideAt<300)return;v12GuideAt=now;let el=document.getElementById('ilsGuide');if(!el){el=document.createElement('div');el.id='ilsGuide';el.className='ils-guide';document.getElementById('hud')?.append(el);}const g=state.mode==='earth'&&!fm.onGround?airports.approachGuidance():null;if(!g||g.dist>12000){el.hidden=true;return;}el.hidden=false;const nm=(g.dist/1852).toFixed(1),d=Math.round(g.dev*3.28084);el.textContent='RWY '+g.ident+' ? '+nm+' NM ? GS '+(Math.abs(d)<60?'ON':d>0?'HIGH +'+d:'LOW '+d)+' FT';el.dataset.state=Math.abs(d)<60?'on':'off';}
 function animate(timestamp) {`,'v12 systems');
   replace("function updateHUD(elapsed) {\n  if(state.mode==='surface'){surfaces.updateHUD();return;}","function updateHUD(elapsed) {\n  if(state.mode==='surface'){surfaces.updateHUD();return;}\n  updateApproachGuide();",'v12 approach guide');
   // Stall/pull-up warnings: silence PULL UP on a stabilised gear-down approach and while rolling.
@@ -106,6 +108,6 @@ function animate(timestamp) {`,'v12 systems');
   // Performance: phones get a lower default DPR ceiling; the adaptive scaler still raises it when FPS allows.
   replace('renderer.setPixelRatio(Math.min(devicePixelRatio, 1.6));',"const MOBILE_GPU=matchMedia('(pointer:coarse)').matches;renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE_GPU?1.25:1.6));",'mobile DPR');
   replace('function applyPixelRatio(){renderer.setPixelRatio(Math.min(devicePixelRatio,Math.min(2,1.65*state.quality*state.resolutionScale)));}',"function applyPixelRatio(){renderer.setPixelRatio(Math.min(devicePixelRatio,Math.min(MOBILE_GPU?1.5:2,(MOBILE_GPU?1.3:1.65)*state.quality*state.resolutionScale)));}",'mobile DPR cap');
-  source=source.replaceAll('Â·','·').replaceAll('Â°','°');
+  source=source.replaceAll('�','?').replaceAll('�','?');
   return source;
 }

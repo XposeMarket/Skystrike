@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {buildEiffel} from './eiffel.mjs';
 
 // Recognizable procedural landmarks, placed at real coordinates.
 // These are not photogrammetry scans. They are distinct silhouettes so a
@@ -65,6 +66,7 @@ function cone(r, h, color, y, opts, segs = 12) {
 
 const builders = {
   tower(g, L) {
+    if (L.id === 'eiffel') { g.add(buildEiffel()); return; }
     const iron = '#5c4636';
     g.add(box(28, 8, 28, '#6b5846', 4));
     for (let i = 0; i < 4; i++) {
@@ -280,5 +282,6 @@ export function suppressRadius(L) {
   if (L.kind === 'bridge') return (L.span || 400) * 0.45;
   if (L.kind === 'arena' || L.kind === 'shells') return 110;
   if (L.kind === 'pyramid') return L.h * 1.3;
+  if (L.id === 'eiffel') return 85;
   return Math.max(28, Math.min(70, L.h * 0.18));
 }
