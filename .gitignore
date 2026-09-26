@@ -2,3 +2,10 @@
 .vercel
 node_modules
 *.log
+
+shots/
+temp-e2e.mjs
+.flight-cache/
+test-results/
+dist/
+node_modules/

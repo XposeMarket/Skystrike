@@ -76,6 +76,36 @@ async function buildSolarSystem`,'map texture timeout');
 `function imageData(url){return new Promise((resolve,reject)=>{const img=new Image();img.crossOrigin='anonymous';let done=false;const fail=e=>{if(done)return;done=true;clearTimeout(timer);img.onload=img.onerror=null;reject(e);};const timer=setTimeout(()=>{fail(new Error('Elevation tile timeout'));img.src='';},10000);img.onerror=fail;img.onload=()=>{if(done)return;try{const c=document.createElement('canvas');c.width=img.width;c.height=img.height;const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,0);const data=ctx.getImageData(0,0,img.width,img.height);done=true;clearTimeout(timer);resolve(data);}catch(e){fail(e);}};img.src=url;});}
 
 function terrainTileBounds`,'elevation timeout');
+  // v12: per-aircraft flight model, airports/runways, landing gear, takeoff & landing.
+  source="import {createFlightModel} from '../flight-v11/flightmodel.mjs';\nimport {createAirports,installAirportUI} from '../flight-v11/airports.mjs';\n"+source;
+  replace(/    const max = cfg\.maxSpeed\*\(state\.boost\?1\.16:1\);[\s\S]*?if\(flightPos\.y<minY\)\{[^\n]*\n/,
+`    if(fm.step(dt,cfg)){aircraftRoot.position.copy(flightPos);aircraftRoot.quaternion.copy(flightQuat);state.altitude=flightPos.y;return;}
+    const previousX=flightPos.x,previousZ=flightPos.z;
+    const buildingHit=!fm.onGround&&buildingCollisionAt(flightPos.x,flightPos.z,flightPos.y);
+    if(buildingHit){fm.crash('BUILDING STRIKE');}
+    state.currentGeo=geoFromFlight();
+    state.terrainBase=terrainHeightAt(flightPos.x,flightPos.z);
+`,'v12 flight model');
+  replace("  await setAircraft('rafale',true);\n  window.__FLIGHT_UNIVERSE__.ready=true;",
+`  await setAircraft('rafale',true);
+  installAirportUI({airports,fm,state,loadTerrain,toast});fm.installUI();
+  window.__FLIGHT_UNIVERSE__.airports=airports;window.__FLIGHT_UNIVERSE__.fm=fm;
+  window.__FLIGHT_UNIVERSE__.ready=true;`,'v12 airport UI');
+  replace('function animate(timestamp) {',
+`const airports=createAirports({state,earthGroup,flightPos,localFromGeo,terrainHeightAt,toast,configs:aircraftConfigs});
+const fm=createFlightModel({state,flightPos,flightQuat,flightEuler,aircraftRoot,airports,terrainHeightAt,toast,spawnExplosion,configs:aircraftConfigs});
+state.throttleUI=t=>{const f=document.getElementById('throttleFill'),k=document.getElementById('throttleKnob');if(f)f.style.height=(t*100)+'%';if(k)k.style.bottom='calc('+(t*100)+'% - 4px)';};
+let v12GuideAt=0;
+function updateApproachGuide(){const now=performance.now();if(now-v12GuideAt<300)return;v12GuideAt=now;let el=document.getElementById('ilsGuide');if(!el){el=document.createElement('div');el.id='ilsGuide';el.className='ils-guide';document.getElementById('hud')?.append(el);}const g=state.mode==='earth'&&!fm.onGround?airports.approachGuidance():null;if(!g||g.dist>12000){el.hidden=true;return;}el.hidden=false;const nm=(g.dist/1852).toFixed(1),d=Math.round(g.dev*3.28084);el.textContent='RWY '+g.ident+' · '+nm+' NM · GS '+(Math.abs(d)<60?'ON':d>0?'HIGH +'+d:'LOW '+d)+' FT';el.dataset.state=Math.abs(d)<60?'on':'off';}
+function animate(timestamp) {`,'v12 systems');
+  replace("function updateHUD(elapsed) {\n  if(state.mode==='surface'){surfaces.updateHUD();return;}","function updateHUD(elapsed) {\n  if(state.mode==='surface'){surfaces.updateHUD();return;}\n  updateApproachGuide();",'v12 approach guide');
+  // Stall/pull-up warnings: silence PULL UP on a stabilised gear-down approach and while rolling.
+  replace("if(agl<85&&state.speed>95)text='PULL UP';","if(!fm.onGround&&agl<85&&state.speed>95&&!fm.gearDown)text='PULL UP';else if(fm.onGround)text='';",'v12 warnings');
+  replace("$('updateStatus').textContent='BUILD V11';","$('updateStatus').textContent='BUILD V12';",'build label');
+  replace("navigator.serviceWorker.register('./sw.js?v=flight-v11')","navigator.serviceWorker.register('./sw.js?v=flight-v12')",'service worker revision v12');
+  // Performance: phones get a lower default DPR ceiling; the adaptive scaler still raises it when FPS allows.
+  replace('renderer.setPixelRatio(Math.min(devicePixelRatio, 1.6));',"const MOBILE_GPU=matchMedia('(pointer:coarse)').matches;renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE_GPU?1.25:1.6));",'mobile DPR');
+  replace('function applyPixelRatio(){renderer.setPixelRatio(Math.min(devicePixelRatio,Math.min(2,1.65*state.quality*state.resolutionScale)));}',"function applyPixelRatio(){renderer.setPixelRatio(Math.min(devicePixelRatio,Math.min(MOBILE_GPU?1.5:2,(MOBILE_GPU?1.3:1.65)*state.quality*state.resolutionScale)));}",'mobile DPR cap');
   source=source.replaceAll('Â·','·').replaceAll('Â°','°');
   return source;
 }

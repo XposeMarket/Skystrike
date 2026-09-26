@@ -1,4 +1,4 @@
-const CACHE='flight-universe-v12-landmarks';
+const CACHE='flight-universe-v13-airports';
 self.addEventListener('install',()=>self.skipWaiting());
 self.addEventListener('activate',event=>event.waitUntil((async()=>{for(const name of await caches.keys())if((name.startsWith('flight-universe')||name.startsWith('fu-'))&&name!==CACHE)await caches.delete(name);await self.clients.claim();})()));
 self.addEventListener('fetch',event=>{const r=event.request,u=new URL(r.url);if(r.method!=='GET'||u.origin!==self.location.origin)return;event.respondWith((async()=>{const cache=await caches.open(CACHE);if(r.mode==='navigate'){try{const response=await fetch(r);if(response.ok)await cache.put(r,response.clone());return response;}catch{return await cache.match(r)||Response.error();}}const old=await cache.match(r);if(old)return old;const response=await fetch(r);if(response.ok)await cache.put(r,response.clone());return response;})());});

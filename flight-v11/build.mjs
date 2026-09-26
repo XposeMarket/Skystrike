@@ -6,6 +6,7 @@ import {build} from 'esbuild';
 import {fromArrayBuffer} from 'geotiff';
 import sharp from 'sharp';
 import {integrate} from './integrate.mjs';
+import {buildAirports} from './airports-data.mjs';
 const BASE='3808ef5455cf9b05bf4e9c3479c4f07babf78ea0';
 const RAW=`https://raw.githubusercontent.com/XposeMarket/Skystrike/${BASE}/`;
 await fs.mkdir('.flight-cache',{recursive:true});await fs.mkdir('dist/assets/models/rafale',{recursive:true});await fs.mkdir('dist/assets/planets',{recursive:true});
@@ -41,7 +42,7 @@ await fs.writeFile('.flight-cache/game.mjs',integrate(assembled));
 const result=await build({entryPoints:['.flight-cache/game.mjs'],bundle:true,format:'esm',target:'es2022',minify:true,outdir:'dist/assets',entryNames:'game-[hash]',metafile:true});
 const entry=Object.entries(result.metafile.outputs).find(([,v])=>v.entryPoint)?.[0];if(!entry)throw new Error('Missing built entry');
 let html=(await download(RAW+'index.html')).toString('utf8');
-html=html.replace(/<script type="importmap">[\s\S]*?<\/script>/,'').replace(/https:\/\/cdn\.jsdelivr\.net\/gh\/XposeMarket\/Skystrike@[^" ]+\/styles\.css/,'./styles.css').replace(/<script type="module" src="[^\"]+"><\/script>/,`<script type="module" src="./${entry.replace(/^dist\//,'')}"></script>`).replaceAll('BUILD V10','BUILD V11').replace('FLIGHT UNIVERSE / V10','FLIGHT UNIVERSE / V11');
+html=html.replace(/<script type="importmap">[\s\S]*?<\/script>/,'').replace(/https:\/\/cdn\.jsdelivr\.net\/gh\/XposeMarket\/Skystrike@[^" ]+\/styles\.css/,'./styles.css').replace(/<script type="module" src="[^\"]+"><\/script>/,`<script type="module" src="./${entry.replace(/^dist\//,'')}"></script>`).replaceAll('BUILD V10','BUILD V12').replace('FLIGHT UNIVERSE / V10','FLIGHT UNIVERSE / V12');
 html=html.replace('</head>','<link rel="stylesheet" href="./v11.css" /></head>');
 await fs.writeFile('dist/index.html',html);
 for(const file of ['styles.css','styles-v10.css','icon.svg','manifest.webmanifest'])await fs.writeFile('dist/'+file,await download(RAW+file));
@@ -65,6 +66,7 @@ await Promise.all([
   (async()=>{const label=(await download(PDS+'megt90n000eb.lbl')).toString();if(!/SAMPLE_TYPE\s*=\s*MSB_INTEGER/.test(label)||!/UNIT\s*=\s*METER/.test(label))throw new Error('MOLA format changed');const bytes=await download(PDS+'megt90n000eb.img');if(bytes.length!==5760*2880*2)throw new Error('MOLA grid size changed');await saveGrid('mars',PDS+'megt90n000eb.img',5760,2880,1,0,i=>bytes.readInt16BE(i*2));await fs.writeFile('dist/assets/planets/mars.jpg',await download('https://maps.jpl.nasa.gov/tmaps/pix/mar0kuu2.jpg'));})(),
   (async()=>{const bytes=await download(SVS+'ldem_16_uint.tif');const tif=await fromArrayBuffer(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength));const image=await tif.getImage(),r=await image.readRasters({interleave:true});if(image.getWidth()!==5760||image.getHeight()!==2880)throw new Error('LOLA grid size changed');await saveGrid('moon',SVS+'ldem_16_uint.tif',5760,2880,.5,-180,i=>r[i]*.5-10000);const color=await download(SVS+'lroc_color_poles_4k.tif');await fs.writeFile('dist/assets/planets/moon.jpg',await sharp(color).jpeg({quality:90}).toBuffer());})()
 ]);
+await buildAirports(download);
 await fs.copyFile('flight-v11/ATTRIBUTION.md','dist/ATTRIBUTION.md');
 await fs.writeFile('dist/assets/provenance.json',JSON.stringify({legacyCommit:BASE,assets:provenance},null,2));
 console.log('Flight Universe v11 built. Static first-party runtime, NASA aircraft and two mapped surfaces.');
